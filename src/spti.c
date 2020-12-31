@@ -96,7 +96,7 @@ main(
     DWORD accessMode = 0, shareMode = 0;
     HANDLE fileHandle = NULL;
     ULONG alignmentMask = 0; // default == no alignment requirement
-    UCHAR srbType = 0; // default == SRB_TYPE_SCSI_REQUEST_BLOCK
+    UCHAR srbType = SRB_TYPE_SCSI_REQUEST_BLOCK; // default == SRB_TYPE_SCSI_REQUEST_BLOCK
     PUCHAR dataBuffer = NULL;
     PUCHAR pUnAlignedBuffer = NULL;
     SCSI_PASS_THROUGH_WITH_BUFFERS sptwb;
@@ -192,7 +192,7 @@ main(
     puts("            ***** MODE SENSE -- return all pages *****");
     puts("            *****      with SenseInfo buffer     *****\n");
 
-    if(srbType == 1)
+    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
     {
         ZeroMemory(&sptwb_ex,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
         sptwb_ex.spt.Version = 0;
@@ -273,7 +273,7 @@ main(
     printf("            ***** MODE SENSE -- return all pages *****\n");
     printf("            *****    without SenseInfo buffer    *****\n\n");
 
-    if(srbType == 1)
+    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
     {
         ZeroMemory(&sptwb_ex,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
         sptwb_ex.spt.Version = 0;
@@ -351,7 +351,7 @@ main(
     printf("            *****      TEST UNIT READY      *****\n");
     printf("            *****   DataInBufferLength = 0  *****\n\n");
 
-    if(srbType == 1)
+    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
     {
         ZeroMemory(&sptwb_ex,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
         sptwb_ex.spt.Version = 0;
@@ -427,7 +427,7 @@ main(
     printf("            *****      MODE SENSE -- return all pages      *****\n");
     printf("            *****   bad DataBufferOffset -- should fail    *****\n\n");
 
-    if(srbType == 1)
+    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
     {
         ZeroMemory(&sptwb_ex,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
         sptwb_ex.spt.Version = 0;
@@ -509,7 +509,7 @@ main(
     printf("            *****               MODE SENSE                  *****\n");
     printf("            *****     return caching mode sense page        *****\n\n");
 
-    if(srbType == 1)
+    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
     {
         ZeroMemory(&sptwb_ex,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
         sptwb_ex.spt.Version = 0;
@@ -595,7 +595,7 @@ main(
     FillMemory(dataBuffer,sectorSize/2,'N');
     FillMemory(dataBuffer + sectorSize/2,sectorSize/2,'T');
 
-    if(srbType == 1)
+    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
     {
         ZeroMemory(&sptdwb_ex,sizeof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX));
         sptdwb_ex.sptd.Version = 0;
@@ -685,7 +685,7 @@ main(
 
     ZeroMemory(dataBuffer,sectorSize);
 
-    if(srbType == 1)
+    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
     {
         ZeroMemory(&sptdwb_ex,sizeof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX));
         sptdwb_ex.sptd.Version = 0;
@@ -1094,7 +1094,7 @@ QueryPropertyForDevice(
     ULONG i;
 
     *AlignmentMask = 0; // default to no alignment
-    *SrbType = 0; // default to SCSI_REQUEST_BLOCK
+    *SrbType = SRB_TYPE_SCSI_REQUEST_BLOCK; // default to SCSI_REQUEST_BLOCK
 
     // Loop twice:
     //  First, get size required for storage adapter descriptor
