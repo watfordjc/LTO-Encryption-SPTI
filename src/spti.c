@@ -97,12 +97,9 @@ main(
     HANDLE fileHandle = NULL;
     ULONG alignmentMask = 0; // default == no alignment requirement
     UCHAR srbType = SRB_TYPE_SCSI_REQUEST_BLOCK; // default == SRB_TYPE_SCSI_REQUEST_BLOCK
-    PUCHAR dataBuffer = NULL;
+    STORAGE_BUS_TYPE storageBusType = BusTypeUnknown;
     PUCHAR pUnAlignedBuffer = NULL;
-    SCSI_PASS_THROUGH_WITH_BUFFERS sptwb;
-    SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER sptdwb;
     SCSI_PASS_THROUGH_WITH_BUFFERS_EX sptwb_ex;
-    SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX sptdwb_ex;
     CHAR string[NAME_COUNT];
 
     ULONG length = 0,
@@ -170,7 +167,7 @@ main(
     // Get the alignment requirements
     //
 
-    status = QueryPropertyForDevice(fileHandle, &alignmentMask, &srbType);
+    status = QueryPropertyForDevice(fileHandle, &alignmentMask, &srbType, &storageBusType);
     if (!status ) {
         errorCode = GetLastError();
         printf("Error getting device and/or adapter properties; "
@@ -185,596 +182,495 @@ main(
            "            *****             was %08x       *****\n\n\n",
            alignmentMask);
 
+    if (storageBusType == BusTypeSas)
+    {
+        printf("Using SAS.\n\n");
+    }
+    else
+    {
+        printf("Using %s - only tested with SAS.\n\n", BusTypeStrings[storageBusType]);
+    }
+
     //
     // Send SCSI Pass Through
     //
 
-    puts("            ***** MODE SENSE -- return all pages *****");
-    puts("            *****      with SenseInfo buffer     *****\n");
 
-    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
+
+    if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
     {
-        ZeroMemory(&sptwb_ex,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
-        sptwb_ex.spt.Version = 0;
-        sptwb_ex.spt.Length = sizeof(SCSI_PASS_THROUGH_EX);
-        sptwb_ex.spt.ScsiStatus = 0;
-        sptwb_ex.spt.CdbLength = CDB6GENERIC_LENGTH;
-        sptwb_ex.spt.StorAddressLength = sizeof(STOR_ADDR_BTL8);
-        sptwb_ex.spt.SenseInfoLength = SPT_SENSE_LENGTH;
-        sptwb_ex.spt.DataOutTransferLength = 0;
-        sptwb_ex.spt.DataInTransferLength = 192;
-        sptwb_ex.spt.DataDirection = SCSI_IOCTL_DATA_IN;
-        sptwb_ex.spt.TimeOutValue = 2;
-        sptwb_ex.spt.StorAddressOffset =
-            offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,StorAddress);
-        sptwb_ex.StorAddress.Type = STOR_ADDRESS_TYPE_BTL8;
-        sptwb_ex.StorAddress.Port = 0;
-        sptwb_ex.StorAddress.AddressLength = STOR_ADDR_BTL8_ADDRESS_LENGTH;
-        sptwb_ex.StorAddress.Path = 0;
-        sptwb_ex.StorAddress.Target = 1;
-        sptwb_ex.StorAddress.Lun = 0;
-        sptwb_ex.spt.SenseInfoOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,ucSenseBuf);
-        sptwb_ex.spt.DataOutBufferOffset = 0;
-        sptwb_ex.spt.DataInBufferOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,ucDataBuf);
-        sptwb_ex.spt.Cdb[0] = SCSIOP_MODE_SENSE;
-        sptwb_ex.spt.Cdb[2] = MODE_SENSE_RETURN_ALL;
-        sptwb_ex.spt.Cdb[4] = 192;
-        length = offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,ucDataBuf) +
-           sptwb_ex.spt.DataInTransferLength;
+        printf("Using STORAGE_REQUEST_BLOCK.\n\n");
+        length = ResetSRB(&sptwb_ex, CDB12GENERIC_LENGTH);
+        sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
+        sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_INFO; // information
+        sptwb_ex.spt.Cdb[2] = SPIN_PROTOCOL_LIST; // supported protocol list
+        sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
+        sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
+        sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
+        sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
 
         status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH_EX,
-                                 &sptwb_ex,
-                                 sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-                                 &sptwb_ex,
-                                 length,
-                                 &returned,
-                                 FALSE);
+            IOCTL_SCSI_PASS_THROUGH_EX,
+            &sptwb_ex,
+            sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
+            &sptwb_ex,
+            length,
+            &returned,
+            FALSE);
 
-        PrintStatusResultsEx(status,returned,&sptwb_ex,length);
-    }
-    else
-    {
-        ZeroMemory(&sptwb,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS));
-        sptwb.spt.Length = sizeof(SCSI_PASS_THROUGH);
-        sptwb.spt.PathId = 0;
-        sptwb.spt.TargetId = 1;
-        sptwb.spt.Lun = 0;
-        sptwb.spt.CdbLength = CDB6GENERIC_LENGTH;
-        sptwb.spt.SenseInfoLength = SPT_SENSE_LENGTH;
-        sptwb.spt.DataIn = SCSI_IOCTL_DATA_IN;
-        sptwb.spt.DataTransferLength = 192;
-        sptwb.spt.TimeOutValue = 2;
-        sptwb.spt.DataBufferOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS,ucDataBuf);
-        sptwb.spt.SenseInfoOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS,ucSenseBuf);
-        sptwb.spt.Cdb[0] = SCSIOP_MODE_SENSE;
-        sptwb.spt.Cdb[2] = MODE_SENSE_RETURN_ALL;
-        sptwb.spt.Cdb[4] = 192;
-        length = offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS,ucDataBuf) +
-           sptwb.spt.DataTransferLength;
+        //PrintStatusResultsEx(status, returned, &sptwb_ex, length);
 
-        status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH,
-                                 &sptwb,
-                                 sizeof(SCSI_PASS_THROUGH),
-                                 &sptwb,
-                                 length,
-                                 &returned,
-                                 FALSE);
-
-        PrintStatusResults(status,returned,&sptwb,length);
-    }
-
-
-    printf("            ***** MODE SENSE -- return all pages *****\n");
-    printf("            *****    without SenseInfo buffer    *****\n\n");
-
-    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-    {
-        ZeroMemory(&sptwb_ex,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
-        sptwb_ex.spt.Version = 0;
-        sptwb_ex.spt.Length = sizeof(SCSI_PASS_THROUGH_EX);
-        sptwb_ex.spt.ScsiStatus = 0;
-        sptwb_ex.spt.CdbLength = CDB6GENERIC_LENGTH;
-        sptwb_ex.spt.StorAddressLength = sizeof(STOR_ADDR_BTL8);
-        sptwb_ex.spt.SenseInfoLength = 0;
-        sptwb_ex.spt.DataOutTransferLength = 0;
-        sptwb_ex.spt.DataInTransferLength = 192;
-        sptwb_ex.spt.DataDirection = SCSI_IOCTL_DATA_IN;
-        sptwb_ex.spt.TimeOutValue = 2;
-        sptwb_ex.spt.StorAddressOffset =
-            offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,StorAddress);
-        sptwb_ex.StorAddress.Type = STOR_ADDRESS_TYPE_BTL8;
-        sptwb_ex.StorAddress.Port = 0;
-        sptwb_ex.StorAddress.AddressLength = STOR_ADDR_BTL8_ADDRESS_LENGTH;
-        sptwb_ex.StorAddress.Path = 0;
-        sptwb_ex.StorAddress.Target = 1;
-        sptwb_ex.StorAddress.Lun = 0;
-        sptwb_ex.spt.SenseInfoOffset = 0;
-        sptwb_ex.spt.DataOutBufferOffset = 0;
-        sptwb_ex.spt.DataInBufferOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,ucDataBuf);
-        sptwb_ex.spt.Cdb[0] = SCSIOP_MODE_SENSE;
-        sptwb_ex.spt.Cdb[2] = MODE_SENSE_RETURN_ALL;
-        sptwb_ex.spt.Cdb[4] = 192;
-        length = offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,ucDataBuf) +
-           sptwb_ex.spt.DataInTransferLength;
-
-        status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH_EX,
-                                 &sptwb_ex,
-                                 sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-                                 &sptwb_ex,
-                                 length,
-                                 &returned,
-                                 FALSE);
-
-        PrintStatusResultsEx(status,returned,&sptwb_ex,length);
-    }
-    else
-    {
-        ZeroMemory(&sptwb,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS));
-        sptwb.spt.Length = sizeof(SCSI_PASS_THROUGH);
-        sptwb.spt.PathId = 0;
-        sptwb.spt.TargetId = 1;
-        sptwb.spt.Lun = 0;
-        sptwb.spt.CdbLength = CDB6GENERIC_LENGTH;
-        sptwb.spt.SenseInfoLength = 0;
-        sptwb.spt.DataIn = SCSI_IOCTL_DATA_IN;
-        sptwb.spt.DataTransferLength = 192;
-        sptwb.spt.TimeOutValue = 2;
-        sptwb.spt.DataBufferOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS,ucDataBuf);
-        sptwb.spt.Cdb[0] = SCSIOP_MODE_SENSE;
-        sptwb.spt.Cdb[2] = MODE_SENSE_RETURN_ALL;
-        sptwb.spt.Cdb[4] = 192;
-        length = offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS,ucDataBuf) +
-           sptwb.spt.DataTransferLength;
-
-        status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH,
-                                 &sptwb,
-                                 sizeof(SCSI_PASS_THROUGH),
-                                 &sptwb,
-                                 length,
-                                 &returned,
-                                 FALSE);
-
-        PrintStatusResults(status,returned,&sptwb,length);
-    }
-
-
-    printf("            *****      TEST UNIT READY      *****\n");
-    printf("            *****   DataInBufferLength = 0  *****\n\n");
-
-    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-    {
-        ZeroMemory(&sptwb_ex,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
-        sptwb_ex.spt.Version = 0;
-        sptwb_ex.spt.Length = sizeof(SCSI_PASS_THROUGH_EX);
-        sptwb_ex.spt.ScsiStatus = 0;
-        sptwb_ex.spt.CdbLength = CDB6GENERIC_LENGTH;
-        sptwb_ex.spt.StorAddressLength = sizeof(STOR_ADDR_BTL8);
-        sptwb_ex.spt.SenseInfoLength = SPT_SENSE_LENGTH;
-        sptwb_ex.spt.DataOutTransferLength = 0;
-        sptwb_ex.spt.DataInTransferLength = 0;
-        sptwb_ex.spt.DataDirection = SCSI_IOCTL_DATA_IN;
-        sptwb_ex.spt.TimeOutValue = 2;
-        sptwb_ex.spt.StorAddressOffset =
-            offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,StorAddress);
-        sptwb_ex.StorAddress.Type = STOR_ADDRESS_TYPE_BTL8;
-        sptwb_ex.StorAddress.Port = 0;
-        sptwb_ex.StorAddress.AddressLength = STOR_ADDR_BTL8_ADDRESS_LENGTH;
-        sptwb_ex.StorAddress.Path = 0;
-        sptwb_ex.StorAddress.Target = 1;
-        sptwb_ex.StorAddress.Lun = 0;
-        sptwb_ex.spt.SenseInfoOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,ucSenseBuf);
-        sptwb_ex.spt.DataOutBufferOffset = 0;
-        sptwb_ex.spt.DataInBufferOffset = 0;
-        sptwb_ex.spt.Cdb[0] = SCSIOP_TEST_UNIT_READY;
-        length = offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,ucDataBuf);
-
-        status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH_EX,
-                                 &sptwb_ex,
-                                 sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-                                 &sptwb_ex,
-                                 length,
-                                 &returned,
-                                 FALSE);
-
-        PrintStatusResultsEx(status,returned,&sptwb_ex,length);
-    }
-    else
-    {
-        ZeroMemory(&sptwb,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS));
-        sptwb.spt.Length = sizeof(SCSI_PASS_THROUGH);
-        sptwb.spt.PathId = 0;
-        sptwb.spt.TargetId = 1;
-        sptwb.spt.Lun = 0;
-        sptwb.spt.CdbLength = CDB6GENERIC_LENGTH;
-        sptwb.spt.SenseInfoLength = SPT_SENSE_LENGTH;
-        sptwb.spt.DataIn = SCSI_IOCTL_DATA_IN;
-        sptwb.spt.DataTransferLength = 0;
-        sptwb.spt.TimeOutValue = 2;
-        sptwb.spt.DataBufferOffset = 0;
-        sptwb.spt.SenseInfoOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS,ucSenseBuf);
-        sptwb.spt.Cdb[0] = SCSIOP_TEST_UNIT_READY;
-        length = offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS,ucDataBuf);
-
-        status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH,
-                                 &sptwb,
-                                 sizeof(SCSI_PASS_THROUGH),
-                                 &sptwb,
-                                 length,
-                                 &returned,
-                                 FALSE);
-
-        PrintStatusResults(status,returned,&sptwb,length);
-    }
-
-
-    //
-    //  Do a mode sense with a bad data buffer offset.  This will fail.
-    //
-    printf("            *****      MODE SENSE -- return all pages      *****\n");
-    printf("            *****   bad DataBufferOffset -- should fail    *****\n\n");
-
-    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-    {
-        ZeroMemory(&sptwb_ex,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
-        sptwb_ex.spt.Version = 0;
-        sptwb_ex.spt.Length = sizeof(SCSI_PASS_THROUGH_EX);
-        sptwb_ex.spt.ScsiStatus = 0;
-        sptwb_ex.spt.CdbLength = CDB6GENERIC_LENGTH;
-        sptwb_ex.spt.StorAddressLength = sizeof(STOR_ADDR_BTL8);
-        sptwb_ex.spt.SenseInfoLength = SPT_SENSE_LENGTH;
-        sptwb_ex.spt.DataOutTransferLength = 0;
-        sptwb_ex.spt.DataInTransferLength = 192;
-        sptwb_ex.spt.DataDirection = SCSI_IOCTL_DATA_IN;
-        sptwb_ex.spt.TimeOutValue = 2;
-        sptwb_ex.spt.StorAddressOffset =
-            offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,StorAddress);
-        sptwb_ex.StorAddress.Type = STOR_ADDRESS_TYPE_BTL8;
-        sptwb_ex.StorAddress.Port = 0;
-        sptwb_ex.StorAddress.AddressLength = STOR_ADDR_BTL8_ADDRESS_LENGTH;
-        sptwb_ex.StorAddress.Path = 0;
-        sptwb_ex.StorAddress.Target = 1;
-        sptwb_ex.StorAddress.Lun = 0;
-        sptwb_ex.spt.SenseInfoOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,ucSenseBuf);
-        sptwb_ex.spt.DataOutBufferOffset = 0;
-        sptwb_ex.spt.DataInBufferOffset = 0;
-        sptwb_ex.spt.Cdb[0] = SCSIOP_MODE_SENSE;
-        sptwb_ex.spt.Cdb[2] = MODE_SENSE_RETURN_ALL;
-        sptwb_ex.spt.Cdb[4] = 192;
-        length = offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,ucDataBuf) +
-           sptwb_ex.spt.DataInTransferLength;
-
-        status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH_EX,
-                                 &sptwb_ex,
-                                 sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-                                 &sptwb_ex,
-                                 length,
-                                 &returned,
-                                 FALSE);
-
-        PrintStatusResultsEx(status,returned,&sptwb_ex,length);
-    }
-    else
-    {
-        ZeroMemory(&sptwb,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS));
-        sptwb.spt.Length = sizeof(SCSI_PASS_THROUGH);
-        sptwb.spt.PathId = 0;
-        sptwb.spt.TargetId = 1;
-        sptwb.spt.Lun = 0;
-        sptwb.spt.CdbLength = CDB6GENERIC_LENGTH;
-        sptwb.spt.SenseInfoLength = 0;
-        sptwb.spt.DataIn = SCSI_IOCTL_DATA_IN;
-        sptwb.spt.DataTransferLength = 192;
-        sptwb.spt.TimeOutValue = 2;
-        sptwb.spt.DataBufferOffset = 0;
-        sptwb.spt.SenseInfoOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS,ucSenseBuf);
-        sptwb.spt.Cdb[0] = SCSIOP_MODE_SENSE;
-        sptwb.spt.Cdb[2] = MODE_SENSE_RETURN_ALL;
-        sptwb.spt.Cdb[4] = 192;
-        length = offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS,ucDataBuf) +
-           sptwb.spt.DataTransferLength;
-
-        status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH,
-                                 &sptwb,
-                                 sizeof(SCSI_PASS_THROUGH),
-                                 &sptwb,
-                                 length,
-                                 &returned,
-                                 FALSE);
-
-        PrintStatusResults(status,returned,&sptwb,length);
-    }
-
-
-    //
-    // Get caching mode sense page.
-    //
-    printf("            *****               MODE SENSE                  *****\n");
-    printf("            *****     return caching mode sense page        *****\n\n");
-
-    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-    {
-        ZeroMemory(&sptwb_ex,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
-        sptwb_ex.spt.Version = 0;
-        sptwb_ex.spt.Length = sizeof(SCSI_PASS_THROUGH_EX);
-        sptwb_ex.spt.ScsiStatus = 0;
-        sptwb_ex.spt.CdbLength = CDB6GENERIC_LENGTH;
-        sptwb_ex.spt.StorAddressLength = sizeof(STOR_ADDR_BTL8);
-        sptwb_ex.spt.SenseInfoLength = SPT_SENSE_LENGTH;
-        sptwb_ex.spt.DataOutTransferLength = 0;
-        sptwb_ex.spt.DataInTransferLength = 192;
-        sptwb_ex.spt.DataDirection = SCSI_IOCTL_DATA_IN;
-        sptwb_ex.spt.TimeOutValue = 2;
-        sptwb_ex.spt.StorAddressOffset =
-            offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,StorAddress);
-        sptwb_ex.StorAddress.Type = STOR_ADDRESS_TYPE_BTL8;
-        sptwb_ex.StorAddress.Port = 0;
-        sptwb_ex.StorAddress.AddressLength = STOR_ADDR_BTL8_ADDRESS_LENGTH;
-        sptwb_ex.StorAddress.Path = 0;
-        sptwb_ex.StorAddress.Target = 1;
-        sptwb_ex.StorAddress.Lun = 0;
-        sptwb_ex.spt.SenseInfoOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,ucSenseBuf);
-        sptwb_ex.spt.DataOutBufferOffset = 0;
-        sptwb_ex.spt.DataInBufferOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,ucDataBuf);
-        sptwb_ex.spt.Cdb[0] = SCSIOP_MODE_SENSE;
-        sptwb_ex.spt.Cdb[1] = 0x08; // target shall not return any block descriptors
-        sptwb_ex.spt.Cdb[2] = MODE_PAGE_CACHING;
-        sptwb_ex.spt.Cdb[4] = 192;
-        length = offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX,ucDataBuf) +
-           sptwb_ex.spt.DataInTransferLength;
-
-        status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH_EX,
-                                 &sptwb_ex,
-                                 sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-                                 &sptwb_ex,
-                                 length,
-                                 &returned,
-                                 FALSE);
-
-        PrintStatusResultsEx(status,returned,&sptwb_ex,length);
-    }
-    else
-    {
-        ZeroMemory(&sptwb,sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS));
-        sptwb.spt.Length = sizeof(SCSI_PASS_THROUGH);
-        sptwb.spt.PathId = 0;
-        sptwb.spt.TargetId = 1;
-        sptwb.spt.Lun = 0;
-        sptwb.spt.CdbLength = CDB6GENERIC_LENGTH;
-        sptwb.spt.SenseInfoLength = SPT_SENSE_LENGTH;
-        sptwb.spt.DataIn = SCSI_IOCTL_DATA_IN;
-        sptwb.spt.DataTransferLength = 192;
-        sptwb.spt.TimeOutValue = 2;
-        sptwb.spt.DataBufferOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS,ucDataBuf);
-        sptwb.spt.SenseInfoOffset =
-           offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS,ucSenseBuf);
-        sptwb.spt.Cdb[0] = SCSIOP_MODE_SENSE;
-        sptwb.spt.Cdb[1] = 0x08; // target shall not return any block descriptors
-        sptwb.spt.Cdb[2] = MODE_PAGE_CACHING;
-        sptwb.spt.Cdb[4] = 192;
-        length = offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS,ucDataBuf) +
-           sptwb.spt.DataTransferLength;
-
-        status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH,
-                                 &sptwb,
-                                 sizeof(SCSI_PASS_THROUGH),
-                                 &sptwb,
-                                 length,
-                                 &returned,
-                                 FALSE);
-
-        PrintStatusResults(status,returned,&sptwb,length);
-    }
-
-
-    printf("            *****       WRITE DATA BUFFER operation         *****\n");
-    
-    dataBuffer = AllocateAlignedBuffer(sectorSize,alignmentMask, &pUnAlignedBuffer);
-    FillMemory(dataBuffer,sectorSize/2,'N');
-    FillMemory(dataBuffer + sectorSize/2,sectorSize/2,'T');
-
-    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-    {
-        ZeroMemory(&sptdwb_ex,sizeof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX));
-        sptdwb_ex.sptd.Version = 0;
-        sptdwb_ex.sptd.Length = sizeof(SCSI_PASS_THROUGH_DIRECT_EX);
-        sptdwb_ex.sptd.ScsiStatus = 0;
-        sptdwb_ex.sptd.CdbLength = CDB10GENERIC_LENGTH;
-        sptdwb_ex.sptd.StorAddressLength = sizeof(STOR_ADDR_BTL8);
-        sptdwb_ex.sptd.SenseInfoLength = SPT_SENSE_LENGTH;
-        sptdwb_ex.sptd.DataOutTransferLength = sectorSize;
-        sptdwb_ex.sptd.DataInTransferLength = 0;
-        sptdwb_ex.sptd.DataDirection = SCSI_IOCTL_DATA_OUT;
-        sptdwb_ex.sptd.TimeOutValue = 2;
-        sptdwb_ex.sptd.StorAddressOffset =
-            offsetof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX,StorAddress);
-        sptdwb_ex.StorAddress.Type = STOR_ADDRESS_TYPE_BTL8;
-        sptdwb_ex.StorAddress.Port = 0;
-        sptdwb_ex.StorAddress.AddressLength = STOR_ADDR_BTL8_ADDRESS_LENGTH;
-        sptdwb_ex.StorAddress.Path = 0;
-        sptdwb_ex.StorAddress.Target = 1;
-        sptdwb_ex.StorAddress.Lun = 0;
-        sptdwb_ex.sptd.SenseInfoOffset = 
-           offsetof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX,ucSenseBuf);
-        sptdwb_ex.sptd.DataOutBuffer = dataBuffer;
-        sptdwb_ex.sptd.DataInBuffer = NULL;
-        sptdwb_ex.sptd.Cdb[0] = SCSIOP_WRITE_DATA_BUFF;
-        sptdwb_ex.sptd.Cdb[1] = 2;                         // Data mode
-        sptdwb_ex.sptd.Cdb[7] = (UCHAR)(sectorSize >> 8);  // Parameter List length
-        sptdwb_ex.sptd.Cdb[8] = 0;
-        length = sizeof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX);
-
-        status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH_DIRECT_EX,
-                                 &sptdwb_ex,
-                                 length,
-                                 &sptdwb_ex,
-                                 length,
-                                 &returned,
-                                 FALSE);
-
-        PrintStatusResultsEx(status,returned,
-           (PSCSI_PASS_THROUGH_WITH_BUFFERS_EX)&sptdwb_ex,length);
-
-        if ((sptdwb_ex.sptd.ScsiStatus == 0) && (status != 0)) {
-           PrintDataBuffer(dataBuffer,sptdwb_ex.sptd.DataOutTransferLength);
+        if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+        {
+            printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
+            PrintStatusResultsEx(status, returned, &sptwb_ex, length);
         }
+        else
+        {
+            PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA data = (void *)sptwb_ex.ucDataBuf;
+            BOOL capTapeEncryption = FALSE;
+            int listCount = data->SupportedSecurityListLength[0] << 8 | data->SupportedSecurityListLength[1];
+            for (int i = 0; i < listCount; i++)
+            {
+                char* securityProtocol = "";
+                switch (data->SupportedSecurityProtocol[i])
+                {
+                case SECURITY_PROTOCOL_INFO:
+                    securityProtocol = "Security protocol information";
+                    break;
+                case SECURITY_PROTOCOL_TAPE:
+                    securityProtocol = "Tape Data Encryption (SSC-3)";
+                    capTapeEncryption = TRUE;
+                    break;
+                default:
+                    securityProtocol = "Unknown";
+                    break;
+                }
+
+                printf("Supported Security Protocol: 0x%02X (%s)\n", data->SupportedSecurityProtocol[i], securityProtocol);
+            }
+            printf("\n");
+            if (capTapeEncryption)
+            {
+                printf("This device supports Tape Data Encryption.\n\n");
+            }
+            else
+            {
+                fprintf(stderr, "This device doesn't support Tape Data Encryption.\n");
+                CloseHandle(fileHandle);
+                return;
+            }
+        }
+
+        //PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
     }
     else
     {
-        ZeroMemory(&sptdwb, sizeof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER));
-        sptdwb.sptd.Length = sizeof(SCSI_PASS_THROUGH_DIRECT);
-        sptdwb.sptd.PathId = 0;
-        sptdwb.sptd.TargetId = 1;
-        sptdwb.sptd.Lun = 0;
-        sptdwb.sptd.CdbLength = CDB10GENERIC_LENGTH;
-        sptdwb.sptd.SenseInfoLength = SPT_SENSE_LENGTH;
-        sptdwb.sptd.DataIn = SCSI_IOCTL_DATA_OUT;
-        sptdwb.sptd.DataTransferLength = sectorSize;
-        sptdwb.sptd.TimeOutValue = 2;
-        sptdwb.sptd.DataBuffer = dataBuffer;
-        sptdwb.sptd.SenseInfoOffset =
-           offsetof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER,ucSenseBuf);
-        sptdwb.sptd.Cdb[0] = SCSIOP_WRITE_DATA_BUFF;
-        sptdwb.sptd.Cdb[1] = 2;                         // Data mode
-        sptdwb.sptd.Cdb[7] = (UCHAR)(sectorSize >> 8);  // Parameter List length
-        sptdwb.sptd.Cdb[8] = 0;
-        length = sizeof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER);
-
-        status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH_DIRECT,
-                                 &sptdwb,
-                                 length,
-                                 &sptdwb,
-                                 length,
-                                 &returned,
-                                 FALSE);
-        
-        PrintStatusResults(status,returned,
-           (PSCSI_PASS_THROUGH_WITH_BUFFERS)&sptdwb,length);
-
-        if ((sptdwb.sptd.ScsiStatus == 0) && (status != 0)) {
-           PrintDataBuffer(dataBuffer,sptdwb.sptd.DataTransferLength);
-        }
+        printf("Using SCSI_REQUEST_BLOCK - only tested with STORAGE_REQUEST_BLOCK.\n\n\n");
     }
 
-
-    printf("            *****       READ DATA BUFFER operation         *****\n");
-
-    ZeroMemory(dataBuffer,sectorSize);
-
-    if(srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
+    if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
     {
-        ZeroMemory(&sptdwb_ex,sizeof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX));
-        sptdwb_ex.sptd.Version = 0;
-        sptdwb_ex.sptd.Length = sizeof(SCSI_PASS_THROUGH_DIRECT_EX);
-        sptdwb_ex.sptd.ScsiStatus = 0;
-        sptdwb_ex.sptd.CdbLength = CDB10GENERIC_LENGTH;
-        sptdwb_ex.sptd.StorAddressLength = sizeof(STOR_ADDR_BTL8);
-        sptdwb_ex.sptd.SenseInfoLength = SPT_SENSE_LENGTH;
-        sptdwb_ex.sptd.DataOutTransferLength = 0;
-        sptdwb_ex.sptd.DataInTransferLength = sectorSize;
-        sptdwb_ex.sptd.DataDirection = SCSI_IOCTL_DATA_IN;
-        sptdwb_ex.sptd.TimeOutValue = 2;
-        sptdwb_ex.sptd.StorAddressOffset =
-            offsetof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX,StorAddress);
-        sptdwb_ex.StorAddress.Type = STOR_ADDRESS_TYPE_BTL8;
-        sptdwb_ex.StorAddress.Port = 0;
-        sptdwb_ex.StorAddress.AddressLength = STOR_ADDR_BTL8_ADDRESS_LENGTH;
-        sptdwb_ex.StorAddress.Path = 0;
-        sptdwb_ex.StorAddress.Target = 1;
-        sptdwb_ex.StorAddress.Lun = 0;
-        sptdwb_ex.sptd.SenseInfoOffset = 
-           offsetof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX,ucSenseBuf);
-        sptdwb_ex.sptd.DataOutBuffer = NULL;
-        sptdwb_ex.sptd.DataInBuffer = dataBuffer;
-        sptdwb_ex.sptd.Cdb[0] = SCSIOP_READ_DATA_BUFF;
-        sptdwb_ex.sptd.Cdb[1] = 2;                         // Data mode
-        sptdwb_ex.sptd.Cdb[7] = (UCHAR)(sectorSize >> 8);  // Parameter List length
-        sptdwb_ex.sptd.Cdb[8] = 0;
-        length = sizeof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX);
+        length = ResetSRB(&sptwb_ex, CDB12GENERIC_LENGTH);
+        sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
+        sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_TAPE; // tape encryption
+        sptwb_ex.spt.Cdb[3] = SPIN_TAPE_ENCRYPTION_CAPABILITIES; // data encryption capabilities
+        sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
+        sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
+        sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
+        sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
 
         status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH_DIRECT_EX,
-                                 &sptdwb_ex,
-                                 length,
-                                 &sptdwb_ex,
-                                 length,
-                                 &returned,
-                                 FALSE);
+            IOCTL_SCSI_PASS_THROUGH_EX,
+            &sptwb_ex,
+            sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
+            &sptwb_ex,
+            length,
+            &returned,
+            FALSE);
 
-        PrintStatusResultsEx(status,returned,
-           (PSCSI_PASS_THROUGH_WITH_BUFFERS_EX)&sptdwb_ex,length);
-
-        if ((sptdwb_ex.sptd.ScsiStatus == 0) && (status != 0)) {
-           PrintDataBuffer(dataBuffer,sptdwb_ex.sptd.DataInTransferLength);
+        if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+        {
+            printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
+            PrintStatusResultsEx(status, returned, &sptwb_ex, length);
         }
+        int pageCode = sptwb_ex.ucDataBuf[0] << 8 | sptwb_ex.ucDataBuf[1];
+        if (pageCode == SPIN_TAPE_ENCRYPTION_CAPABILITIES)
+        {
+            char* description;
+            printf("Parsing Data Encryption Capabilities page...\n");
+            int pageLength = sptwb_ex.ucDataBuf[2] << 8 | sptwb_ex.ucDataBuf[3];
+            printf("Page length: %d bytes\n", pageLength);
+            int capExtdecc = sptwb_ex.ucDataBuf[4] & 0b00001100;
+            printf("External Data Encryption Capable (EXTDECC): %s\n", capExtdecc ? "True" : "False");
+            int capCfgP = sptwb_ex.ucDataBuf[4] & 0b00000011;
+            switch (capCfgP)
+            {
+            case 0b01:
+                description = "False";
+                break;
+            case 0b10:
+                description = "True";
+                break;
+            default:
+                description = "Unknown";
+                break;
+            }
+            printf("Configuration Prevented (CFG_P): %s\n", description);
+            int algorithmIndex = sptwb_ex.ucDataBuf[20];
+            printf("Algorithm index: 0x%02X\n", algorithmIndex);
+            int descriptorLength = sptwb_ex.ucDataBuf[22] << 8 | sptwb_ex.ucDataBuf[23];
+            printf("Descriptor Length: %d bytes\n", descriptorLength);
+            printf("Algorithm Valid For Mounted Volume (AVFMV): %s\n", (sptwb_ex.ucDataBuf[24] & (0b10000000 >> 7)) == 0b1 ? "True" : "False");
+            int capDecrypt = sptwb_ex.ucDataBuf[24] & 0b00001100 >> 2;
+            switch (capDecrypt)
+            {
+            case 0b10:
+                description = "Hardware";
+                break;
+            case 0b11:
+                description = "CFG_P";
+                break;
+            default:
+                description = "Unknown";
+                break;
+            }
+            printf("Decryption Capable (Decrypt_C): %s\n", description);
+            int capEncrypt = sptwb_ex.ucDataBuf[24] & 0b00000011;
+            switch (capEncrypt)
+            {
+            case 0b10:
+                description = "Hardware";
+                break;
+            case 0b11:
+                description = "CFG_P";
+                break;
+            default:
+                description = "Unknown";
+                break;
+            }
+            printf("Encryption Capable (Encrypt_C): %s\n", description);
+            int capAvfclp = sptwb_ex.ucDataBuf[25] & 0b11000000 >> 6;
+            switch (capAvfclp)
+            {
+            case 0b00:
+                description = "No tape loaded";
+                break;
+            case 0b01:
+                description = "False";
+                break;
+            case 0b10:
+                description = "True";
+                break;
+            default:
+                description = "Unknown";
+                break;
+            }
+            printf("Algorithm Valid For Current Logical Position (AVFCLP): %s\n", description);
+            int maxUnauthKeyBytes = sptwb_ex.ucDataBuf[26] << 8 | sptwb_ex.ucDataBuf[27];
+            printf("Maximum Unauthenticated Key-Associated Data Bytes: %d\n", maxUnauthKeyBytes);
+            int maxAuthKeyBytes = sptwb_ex.ucDataBuf[28] << 8 | sptwb_ex.ucDataBuf[29];
+            printf("Maximum Authenticated Key-Associated Data Bytes: %d\n", maxAuthKeyBytes);
+            int keySize = sptwb_ex.ucDataBuf[30] << 8 | sptwb_ex.ucDataBuf[31];
+            printf("Key Size: %d bytes (%d-bit)\n", keySize, keySize * 8);
+            int capRdmc = (sptwb_ex.ucDataBuf[32] & 0b00001110) >> 1;
+            if (capRdmc == 0x4)
+            {
+                printf("Raw Decryption Mode Control (RDMC_C): Raw decryption not allowed by default\n");
+            }
+            else
+            {
+                printf("Raw Decryption Mode Control (RDMC_C): 0x%02X\n", capRdmc);
+            }
+            int capEarem = sptwb_ex.ucDataBuf[32] & 0b1;
+            printf("Encryption Algorithm Records Encryption Mode (EAREM): %s\n", capEarem == 1 ? "True" : "False");
+            int maxSupplementalKeyCount = sptwb_ex.ucDataBuf[34] << 8 | sptwb_ex.ucDataBuf[35];
+            printf("Maximum number of supplemental decryption keys: %d\n", maxSupplementalKeyCount);
+            long algorithmCode = sptwb_ex.ucDataBuf[40] << 24 | sptwb_ex.ucDataBuf[41] << 16 | sptwb_ex.ucDataBuf[42] << 8 | sptwb_ex.ucDataBuf[43];
+            if (algorithmCode == 0x00010014)
+            {
+                printf("Algorithm: AES-GCM (AES%d-GCM)\n", keySize * 8);
+            }
+            else
+            {
+                printf("Unknown Algorithm: 0x%08X\n", algorithmCode);
+            }
+
+            printf("\n\n");
+        }
+
+      //  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
+    }
+
+    BOOL capRfc3394 = FALSE;
+    if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
+    {
+        length = ResetSRB(&sptwb_ex, CDB12GENERIC_LENGTH);
+        sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
+        sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_TAPE; // tape encryption
+        sptwb_ex.spt.Cdb[3] = SPIN_TAPE_SUPPORTED_KEY_FORMATS; // supported key formats page
+        sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
+        sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
+        sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
+        sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
+
+        status = DeviceIoControl(fileHandle,
+            IOCTL_SCSI_PASS_THROUGH_EX,
+            &sptwb_ex,
+            sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
+            &sptwb_ex,
+            length,
+            &returned,
+            FALSE);
+
+        if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+        {
+            printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
+            PrintStatusResultsEx(status, returned, &sptwb_ex, length);
+        }
+        int pageCode = sptwb_ex.ucDataBuf[0] << 8 | sptwb_ex.ucDataBuf[1];
+        if (pageCode == SPIN_TAPE_SUPPORTED_KEY_FORMATS)
+        {
+            char* description;
+            printf("Parsing Supported Key Formats page...\n");
+            int pageLength = sptwb_ex.ucDataBuf[2] << 8 | sptwb_ex.ucDataBuf[3];
+            printf("Page length: %d bytes\n\n", pageLength);
+
+            for (int i = 0; i < pageLength; i++)
+            {
+                switch (sptwb_ex.ucDataBuf[4+i])
+                {
+                case SPIN_TAPE_KEY_FORMAT_PLAIN:
+                    description = "Plain-text";
+                    break;
+                case SPIN_TAPE_KEY_FORMAT_WRAPPED:
+                    description = "Wrapped/RFC 3394";
+                    capRfc3394 = TRUE;
+                    break;
+                default:
+                    description = "Unknown";
+                    break;
+                }
+
+                printf("Supported Key Format: 0x%02X (%s)\n", sptwb_ex.ucDataBuf[4 + i], description);
+            }
+
+            printf("\n\n");
+        }
+
+      //  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
+    }
+
+    if (capRfc3394)
+    {
+        printf("This device supports RFC 3394 AES Key-Wrapping.\n\n");
     }
     else
     {
-        ZeroMemory(&sptdwb, sizeof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER));
-        sptdwb.sptd.Length = sizeof(SCSI_PASS_THROUGH_DIRECT);
-        sptdwb.sptd.PathId = 0;
-        sptdwb.sptd.TargetId = 1;
-        sptdwb.sptd.Lun = 0;
-        sptdwb.sptd.CdbLength = CDB10GENERIC_LENGTH;
-        sptdwb.sptd.DataIn = SCSI_IOCTL_DATA_IN;
-        sptdwb.sptd.SenseInfoLength = SPT_SENSE_LENGTH;
-        sptdwb.sptd.DataTransferLength = sectorSize;
-        sptdwb.sptd.TimeOutValue = 2;
-        sptdwb.sptd.DataBuffer = dataBuffer;
-        sptdwb.sptd.SenseInfoOffset =
-           offsetof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER,ucSenseBuf);
-        sptdwb.sptd.Cdb[0] = SCSIOP_READ_DATA_BUFF;
-        sptdwb.sptd.Cdb[1] = 2;                         // Data mode
-        sptdwb.sptd.Cdb[7] = (UCHAR)(sectorSize >> 8);  // Parameter List length
-        sptdwb.sptd.Cdb[8] = 0;
-        length = sizeof(SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER);
+        fprintf(stderr, "This device doesn't support RFC 3394 AES Key-Wrapping.\n");
+    }
+
+    // If the device supports AES key wrapping (RFC 3394), try to obtain the RSA-2048 public key
+    if (capRfc3394 && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
+    {
+        length = ResetSRB(&sptwb_ex, CDB12GENERIC_LENGTH);
+        sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
+        sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_TAPE; // tape encryption
+        sptwb_ex.spt.Cdb[3] = SPIN_TAPE_WRAPPED_PUBKEY; // device server key wrapping public key page
+        sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
+        sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
+        sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
+        sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
 
         status = DeviceIoControl(fileHandle,
-                                 IOCTL_SCSI_PASS_THROUGH_DIRECT,
-                                 &sptdwb,
-                                 length,
-                                 &sptdwb,
-                                 length,
-                                 &returned,
-                                 FALSE);
-        
-        PrintStatusResults(status,returned,
-           (PSCSI_PASS_THROUGH_WITH_BUFFERS)&sptdwb,length);
+            IOCTL_SCSI_PASS_THROUGH_EX,
+            &sptwb_ex,
+            sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
+            &sptwb_ex,
+            length,
+            &returned,
+            FALSE);
 
-        if ((sptdwb.sptd.ScsiStatus == 0) && (status != 0)) {
-           PrintDataBuffer(dataBuffer,sptdwb.sptd.DataTransferLength);
+        if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+        {
+            printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
+            PrintStatusResultsEx(status, returned, &sptwb_ex, length);
         }
+        int pageCode = sptwb_ex.ucDataBuf[0] << 8 | sptwb_ex.ucDataBuf[1];
+        if (pageCode == SPIN_TAPE_WRAPPED_PUBKEY)
+        {
+            printf("Parsing Device Server Key Wrapping Public Key page...\n");
+            int pageLength = sptwb_ex.ucDataBuf[2] << 8 | sptwb_ex.ucDataBuf[3];
+            printf("Page length: %d bytes\n\n", pageLength);
+            long publicKeyType = sptwb_ex.ucDataBuf[4] << 24 | sptwb_ex.ucDataBuf[5] << 16 | sptwb_ex.ucDataBuf[6] << 8 | sptwb_ex.ucDataBuf[7];
+            if (publicKeyType == SPIN_TAPE_PUBKEY_TYPE_RSA)
+            {
+                printf("Public Key Type: RSA-2048\n");
+            }
+            long publicKeyFormat = sptwb_ex.ucDataBuf[8] << 24 | sptwb_ex.ucDataBuf[9] << 16 | sptwb_ex.ucDataBuf[10] << 8 | sptwb_ex.ucDataBuf[11];
+            if (publicKeyFormat == SPIN_TAPE_PUBKEY_FORMAT_RSA)
+            {
+                printf("Public Key Format: RSA-2048\n");
+            }
+            int publicKeyLength = sptwb_ex.ucDataBuf[12] << 8 | sptwb_ex.ucDataBuf[13];
+            printf("Public Key length: %d bytes\n", publicKeyLength);
+            if (publicKeyType != SPIN_TAPE_PUBKEY_TYPE_RSA || publicKeyFormat != SPIN_TAPE_PUBKEY_FORMAT_RSA || publicKeyLength != 512)
+            {
+                fprintf(stderr, "RFC 3394 public key is not expected type/format/length.\n");
+                CloseHandle(fileHandle);
+                return;
+            }
+            char publicKeyModulus[256] = { '\0' };
+            char publicKeyExponent[256] = { '\0' };
+            BOOL leadingZeros = TRUE;
+            int modulusOffset = 0;
+            memcpy(&publicKeyModulus, &sptwb_ex.ucDataBuf[14], 256);
+            for (int i = 0; i < 256; i++)
+            {
+                if (leadingZeros) {
+                    leadingZeros = publicKeyModulus[i] == 0;
+                    if (leadingZeros) {
+                        modulusOffset++;
+                        continue;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+            }
+            leadingZeros = TRUE;
+            int exponentOffset = 0;
+            memcpy(&publicKeyExponent, &sptwb_ex.ucDataBuf[14 + 256], 256);
+            for (int i = 0; i < 256; i++)
+            {
+                if (leadingZeros) {
+                    leadingZeros = publicKeyExponent[i] == 0;
+                    if (leadingZeros) {
+                        exponentOffset++;
+                        continue;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+            }
+            // Convert the public key to hex-encoded DER if the following are true:
+            // 1) The modulus is 256 bytes (2048-bit),
+            // 2) The exponent is 3 bytes long (99.5% of RSA keys use e=65537=0x010001)
+            // NB: A 2040-bit (255 byte) modulus fails to meet these conditions - DER forbids integers starting 0x0000
+            if (modulusOffset == 0 && exponentOffset == (256 - 3))
+            {
+                // ASN.1
+                printf("DER: 30820122"); // 30=SEQUENCE, 82=multibyte length (0x80) using 2 bytes (0x2), 0122=length
+                // RSA Encryption (Public Key) - OID 1.2.840.113549.1.1.1
+                printf("300D"); // 30=SEQUENCE, 0D=length
+                printf("0609"); // 06=OID, 09=length
+                printf("2A"); // 2A=1.2 (2A/28.2A%28),
+                printf("864886F70D010101"); // 8648=840 (VLQ/Base-128), 86F70D=113549 (VLQ/Base-128), 010101=1.1.1 (VLQ/Base-128)
+                printf("0500"); // 05=NULL, 00=length
+                // Bit string wrapper
+                printf("0382010F00"); // 03=BIT STRING, 82=multibyte length using 2 bytes, 010F=length, 00=unused (trailing) bits in last octet of bit string
+                // Modulus + exponent
+                printf("3082010A"); // 30=SEQUENCE, 82=multibyte length using 2 bytes, 010A=length
+                // Modulus integer
+                printf("02820101"); // 02=INTEGER, 82=multibyte length using 2 bytes, 0101=length
+                printf("00"); // 00=leading zero so unsigned integer is represented as a positive signed integer
+                for (int i = 0; i < 256; i++)
+                {
+                    printf("%X", (publicKeyModulus[i] & 0xFF) >> 4); // Upper 4 bits
+                    printf("%X", publicKeyModulus[i] & 0x0F); // Lower 4 bits
+                }
+                // Exponent integer
+                printf("02%02X", 256 - exponentOffset); // 02=INTEGER, %02X=length
+                for (int i = exponentOffset; i < 256; i++)
+                {
+                    printf("%X", (publicKeyExponent[i] & 0xFF) >> 4); // Upper 4 bits
+                    printf("%X", publicKeyExponent[i] & 0x0F); // Lower 4 bits
+                }
+            }
+
+            printf("\n\n");
+        }
+
+      //  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
     }
+
+    if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
+    {
+        length = ResetSRB(&sptwb_ex, CDB12GENERIC_LENGTH);
+        sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
+        sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_INFO; // security protocol information
+        sptwb_ex.spt.Cdb[3] = SPIN_CERTIFICATE_DATA; // certificate data
+        sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
+        sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
+        sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
+        sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
+
+        status = DeviceIoControl(fileHandle,
+            IOCTL_SCSI_PASS_THROUGH_EX,
+            &sptwb_ex,
+            sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
+            &sptwb_ex,
+            length,
+            &returned,
+            FALSE);
+
+        if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+        {
+            printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
+            PrintStatusResultsEx(status, returned, &sptwb_ex, length);
+        }
+        printf("Parsing Certificate data...\n");
+        int certificateLength = sptwb_ex.ucDataBuf[2] << 8 | sptwb_ex.ucDataBuf[3];
+        printf("Certificate length: %d bytes\n", certificateLength);
+    }
+
+    /*
+    * Unauthenticated Key-Associated Data (KAD) and Authenticated Key-Associated Data (AKAD)
+    *
+    * This is used to store data with every record written that can be used to ascertain which key was used to encrypt that record.
+    *
+    *
+    */
 
 
     if (pUnAlignedBuffer != NULL) {
         free(pUnAlignedBuffer);
     }
     CloseHandle(fileHandle);
+}
+
+int
+ResetSRB(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength)
+{
+    ZeroMemory(psptwb_ex, sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
+    psptwb_ex->spt.Version = 0;
+    psptwb_ex->spt.Length = sizeof(SCSI_PASS_THROUGH_EX);
+    psptwb_ex->spt.ScsiStatus = 0;
+    psptwb_ex->spt.CdbLength = cdbLength;
+    psptwb_ex->spt.StorAddressLength = sizeof(STOR_ADDR_BTL8);
+    psptwb_ex->spt.SenseInfoLength = SPT_SENSE_LENGTH;
+    psptwb_ex->spt.DataOutTransferLength = 0;
+    psptwb_ex->spt.DataInTransferLength = 4 << 8;
+    psptwb_ex->spt.DataDirection = SCSI_IOCTL_DATA_IN;
+    psptwb_ex->spt.TimeOutValue = 2;
+    psptwb_ex->spt.StorAddressOffset =
+        offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX, StorAddress);
+    psptwb_ex->StorAddress.Type = STOR_ADDRESS_TYPE_BTL8;
+    psptwb_ex->StorAddress.Port = 0;
+    psptwb_ex->StorAddress.AddressLength = STOR_ADDR_BTL8_ADDRESS_LENGTH;
+    psptwb_ex->StorAddress.Path = 0;
+    psptwb_ex->StorAddress.Target = 1;
+    psptwb_ex->StorAddress.Lun = 0;
+    psptwb_ex->spt.SenseInfoOffset =
+        offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX, ucSenseBuf);
+    psptwb_ex->spt.DataOutBufferOffset = 0;
+    psptwb_ex->spt.DataInBufferOffset =
+        offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX, ucDataBuf);
+    return offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX, ucDataBuf) +
+        psptwb_ex->spt.DataInTransferLength;
 }
 
 VOID
@@ -1082,7 +978,8 @@ BOOL
 QueryPropertyForDevice(
     _In_ IN HANDLE DeviceHandle,
     _Out_ OUT PULONG AlignmentMask,
-    _Out_ OUT PUCHAR SrbType
+    _Out_ OUT PUCHAR SrbType,
+    _Out_ OUT PSTORAGE_BUS_TYPE StorageBusType
     )
 {
     PSTORAGE_ADAPTER_DESCRIPTOR adapterDescriptor = NULL;
@@ -1095,6 +992,7 @@ QueryPropertyForDevice(
 
     *AlignmentMask = 0; // default to no alignment
     *SrbType = SRB_TYPE_SCSI_REQUEST_BLOCK; // default to SCSI_REQUEST_BLOCK
+    *StorageBusType = BusTypeUnknown;
 
     // Loop twice:
     //  First, get size required for storage adapter descriptor
@@ -1198,6 +1096,7 @@ QueryPropertyForDevice(
         printf("   ***** No device descriptor supported on the device  *****\n");
     } else {
         PrintDeviceDescriptor(deviceDescriptor);
+        *StorageBusType = deviceDescriptor->BusType;
     }
 
     failed = FALSE;
