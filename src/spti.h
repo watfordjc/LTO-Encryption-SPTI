@@ -106,9 +106,6 @@ ResetSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength);
 int
 ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength);
 
-int
-ResetSrbOutDirect(PSCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX psptdwb_ex, UCHAR cdbLength);
-
 VOID
 PrintError(ULONG);
 

@@ -116,6 +116,7 @@ main(
 		printf("    spti Tape0 r         (open the tape class driver in SHARED READ mode)\n");
 		//printf("    spti Tape0 r D00D00  (Use RFC 3394 wrapped key 0xD00D00 on drive Tape0)\n");
 		printf("    spti Tape0 r weak    (Use a hardcoded really weak test key on drive Tape0)\n");
+		printf("    spti Tape0 r none    (Disable encryption and decryption on drive Tape0)\n");
 		return;
 	}
 
@@ -125,6 +126,7 @@ main(
 	accessMode = GENERIC_WRITE | GENERIC_READ;       // default
 	char* wrappedKey = NULL;
 	BOOL testKey = FALSE;
+	BOOL noKey = FALSE;
 
 	if (argc == 3) {
 
@@ -154,6 +156,9 @@ main(
 	if (argc == 4) {
 		if (strcmp(argv[3],"weak") == 0) {
 			testKey = TRUE;
+		}
+		else if (strcmp(argv[3], "none") == 0) {
+			noKey = TRUE;
 		}
 		else {
 			wrappedKey = argv[3];
@@ -715,7 +720,7 @@ main(
 	}
 
 	//    if (capRfc3394 && wrappedKey != NULL && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	if (testKey && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
+	if ((testKey || noKey) && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
 		//int wrappedKeyLength = strlen(wrappedKey) / 2;
 		//printf("Wrapped key length: %d bytes\n", wrappedKeyLength);
@@ -731,19 +736,23 @@ main(
 			return;
 		}
 
-		char* kadName = "Test2";
-		int kadLength = (int)strlen(kadName);
-		int kadTotalLength = FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[kadLength]);
-		PPLAIN_KEY_DESCRIPTOR kad = malloc(kadTotalLength);
-		ZeroMemory(kad, sizeof(PLAIN_KEY_DESCRIPTOR));
-		kad->Type = SPOUT_TAPE_KAD_PLAIN_TYPE_AUTH; // TODO: Check length is less than *Maximum Authenticated Key-Associated Data Bytes*
-		kad->Length[0] = (kadLength & 0xFF00) >> 8;
-		kad->Length[1] = kadLength & 0xFF;
-		memcpy(kad->Descriptor, kadName, kadLength);
-		printf("KAD Descriptor with length %d:\n\n", kadTotalLength);
-		PrintDataBuffer((PUCHAR)kad, kadTotalLength);
+		int kadTotalLength = 0;
+		PPLAIN_KEY_DESCRIPTOR kad = NULL;
+		if (!noKey) {
+			char* kadName = "Test2";
+			int kadLength = (int)strlen(kadName);
+			kadTotalLength = FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[kadLength]);
+			kad = malloc(kadTotalLength);
+			ZeroMemory(kad, sizeof(PLAIN_KEY_DESCRIPTOR));
+			kad->Type = SPOUT_TAPE_KAD_PLAIN_TYPE_AUTH; // TODO: Check length is less than *Maximum Authenticated Key-Associated Data Bytes*
+			kad->Length[0] = (kadLength & 0xFF00) >> 8;
+			kad->Length[1] = kadLength & 0xFF;
+			memcpy(kad->Descriptor, kadName, kadLength);
+			printf("KAD Descriptor with length %d:\n\n", kadTotalLength);
+			PrintDataBuffer((PUCHAR)kad, kadTotalLength);
+		}
 
-		int plainKeyTotalLength = FIELD_OFFSET(PLAIN_KEY, KADList[kadTotalLength]);
+		int plainKeyTotalLength = noKey ? FIELD_OFFSET(PLAIN_KEY, Key[0]) : FIELD_OFFSET(PLAIN_KEY, KADList[kadTotalLength]);
 		PPLAIN_KEY plainKey = malloc(plainKeyTotalLength);
 		ZeroMemory(plainKey, plainKeyTotalLength);
 		plainKey->PageCode[0] = (SPOUT_TAPE_SET_DATA_ENCRYPTION >> 8) & 0xFF;
@@ -752,20 +761,22 @@ main(
 		//plainKey->CKOD = 0b1;
 		//plainKey->CKORP = 0b1;
 		//plainKey->CKORL = 0b1;
-		plainKey->EncryptionMode = 0x2;
-		plainKey->DecriptionMode = 0x2;
+		plainKey->EncryptionMode = noKey ? 0x0 : 0x2;
+		plainKey->DecriptionMode = noKey ? 0x0 : 0x2;
 		plainKey->AlgorithmIndex = aesGcmAlgorithmIndex;
 		plainKey->KeyFormat = 0x00;
-		plainKey->KADFormat = SPOUT_TAPE_KAD_FORMAT_ASCII;
-		plainKey->KeyLength[1] = 0x20;
+		plainKey->KADFormat = noKey ? 0x0 : SPOUT_TAPE_KAD_FORMAT_ASCII;
+		plainKey->KeyLength[1] = noKey ? 0x0 : 0x20;
 
-		for (int i = 0; i < 32; i++)
-		{
-			plainKey->Key[i] = (UCHAR)(i + 0x10);
+		if (!noKey) {
+			for (int i = 0; i < 32; i++)
+			{
+				plainKey->Key[i] = (UCHAR)(i + 0x10);
+			}
+			memcpy(plainKey->KADList, kad, kadTotalLength);
+			free(kad);
 		}
 
-		memcpy(plainKey->KADList, kad, kadTotalLength);
-		free(kad);
 		plainKey->PageLength[0] = ((plainKeyTotalLength - 4) & 0xFF00) >> 8;
 		plainKey->PageLength[1] = (plainKeyTotalLength - 4) & 0xFF;
 		printf("Set plain key with %d byte KAD list:\n\n", kadTotalLength);
