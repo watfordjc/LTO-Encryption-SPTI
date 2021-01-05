@@ -591,7 +591,7 @@ main(
 		//PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
 	}
 
-	// If the device supports AES key wrapping (RFC 3394), try to obtain the RSA-2048 public key
+	// If the device supports AES key wrapping (RFC 3394), try to obtain the public key
 	if (capRfc3394 && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
 		length = ResetSrbIn(&sptwb_ex, CDB12GENERIC_LENGTH);
@@ -624,29 +624,50 @@ main(
 			int pageLength = sptwb_ex.ucDataBuf[2] << 8 | sptwb_ex.ucDataBuf[3];
 			printf("Page length: %d bytes\n\n", pageLength);
 			long publicKeyType = sptwb_ex.ucDataBuf[4] << 24 | sptwb_ex.ucDataBuf[5] << 16 | sptwb_ex.ucDataBuf[6] << 8 | sptwb_ex.ucDataBuf[7];
-			if (publicKeyType == SPIN_TAPE_PUBKEY_TYPE_RSA)
-			{
-				printf("Public Key Type: RSA-2048\n");
-			}
 			long publicKeyFormat = sptwb_ex.ucDataBuf[8] << 24 | sptwb_ex.ucDataBuf[9] << 16 | sptwb_ex.ucDataBuf[10] << 8 | sptwb_ex.ucDataBuf[11];
-			if (publicKeyFormat == SPIN_TAPE_PUBKEY_FORMAT_RSA)
-			{
-				printf("Public Key Format: RSA-2048\n");
-			}
 			int publicKeyLength = sptwb_ex.ucDataBuf[12] << 8 | sptwb_ex.ucDataBuf[13];
-			printf("Public Key length: %d bytes\n", publicKeyLength);
-			if (publicKeyType != SPIN_TAPE_PUBKEY_TYPE_RSA || publicKeyFormat != SPIN_TAPE_PUBKEY_FORMAT_RSA || publicKeyLength != 512)
+			int modulusLength = 0;
+			int exponentLength = 0;
+			char* keyType;
+			BOOL keyValueConsistent = FALSE;
+			BOOL keyLengthConsistent = FALSE;
+			switch (publicKeyType) {
+			case SPIN_TAPE_PUBKEY_TYPE_RSA2048:
+				keyType = "RSA-2048";
+				keyValueConsistent = publicKeyFormat == SPIN_TAPE_PUBKEY_FORMAT_RSA2048;
+				keyLengthConsistent = publicKeyLength == SPIN_TAPE_PUBKEY_LENGTH_RSA2048;
+				modulusLength = SPIN_TAPE_PUBKEY_LENGTH_RSA2048 / 2; // 256 bytes for RSA-2048
+				exponentLength = SPIN_TAPE_PUBKEY_LENGTH_RSA2048 / 2; // 256 bytes for RSA-2048
+				break;
+			case SPIN_TAPE_PUBKEY_TYPE_ECC521:
+				keyType = "ECC-521";
+				keyValueConsistent = publicKeyFormat == SPIN_TAPE_PUBKEY_FORMAT_ECC521;
+				keyLengthConsistent = publicKeyLength == SPIN_TAPE_PUBKEY_LENGTH_ECC521;
+				// TODO: Work out how X9.63 stores ECC keys and how to calculate length parameters
+				break;
+			default:
+				keyType = "Unknown";
+				break;
+			}
+			if (!keyValueConsistent)
 			{
-				fprintf(stderr, "RFC 3394 public key is not expected type/format/length.\n");
+				fprintf(stderr, "Public Key type %s and key format 0x%08x are not consistent.\n", keyType, publicKeyFormat);
 				CloseHandle(fileHandle);
 				return;
 			}
-			char publicKeyModulus[256] = { '\0' };
-			char publicKeyExponent[256] = { '\0' };
+			if (!keyLengthConsistent)
+			{
+				fprintf(stderr, "Public Key type %s and wrapped key length (%d bytes) are not consistent.\n", keyType, publicKeyLength);
+				CloseHandle(fileHandle);
+				return;
+			}
+			printf("Public Key Type: %s\n", keyType);
+			char* publicKeyModulus = calloc(sizeof(UCHAR), modulusLength);
+			char* publicKeyExponent = calloc(sizeof(UCHAR), exponentLength);
 			BOOL leadingZeros = TRUE;
 			int modulusOffset = 0;
-			memcpy(&publicKeyModulus, &sptwb_ex.ucDataBuf[14], 256);
-			for (int i = 0; i < 256; i++)
+			memcpy(publicKeyModulus, &sptwb_ex.ucDataBuf[14], modulusLength);
+			for (int i = 0; i < modulusLength; i++)
 			{
 				if (leadingZeros) {
 					leadingZeros = publicKeyModulus[i] == 0;
@@ -662,8 +683,8 @@ main(
 			}
 			leadingZeros = TRUE;
 			int exponentOffset = 0;
-			memcpy(&publicKeyExponent, &sptwb_ex.ucDataBuf[14 + 256], 256);
-			for (int i = 0; i < 256; i++)
+			memcpy(publicKeyExponent, &sptwb_ex.ucDataBuf[14 + modulusLength], exponentLength);
+			for (int i = 0; i < exponentLength; i++)
 			{
 				if (leadingZeros) {
 					leadingZeros = publicKeyExponent[i] == 0;
@@ -681,7 +702,7 @@ main(
 			// 1) The modulus is 256 bytes (2048-bit),
 			// 2) The exponent is 3 bytes long (99.5% of RSA keys use e=65537=0x010001)
 			// NB: A 2040-bit (255 byte) modulus fails to meet these conditions - DER forbids integers starting 0x0000
-			if (modulusOffset == 0 && exponentOffset == (256 - 3))
+			if (modulusOffset == 0 && exponentOffset == (exponentLength - 3))
 			{
 				// ASN.1
 				printf("DER: 30820122"); // 30=SEQUENCE, 82=multibyte length (0x80) using 2 bytes (0x2), 0122=length
@@ -711,6 +732,12 @@ main(
 					printf("%X", publicKeyExponent[i] & 0x0F); // Lower 4 bits
 				}
 			}
+			else
+			{
+				fprintf(stderr, "Only RSA-2048 public keys with a 256 byte modulus and 3 byte exponent are currently supported.\n");
+			}
+			free(publicKeyModulus);
+			free(publicKeyExponent);
 
 			printf("\n\n");
 		}
