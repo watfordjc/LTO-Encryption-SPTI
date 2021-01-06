@@ -114,7 +114,7 @@ main(
 		printf("Examples:\n");
 		printf("    spti Tape0           (open the tape class driver in SHARED READ/WRITE mode)\n");
 		printf("    spti Tape0 r         (open the tape class driver in SHARED READ mode)\n");
-		//printf("    spti Tape0 r D00D00  (Use RFC 3394 wrapped key 0xD00D00 on drive Tape0)\n");
+		//printf("    spti Tape0 r D00D00  (Use RFC 3447 wrapped key 0xD00D00 on drive Tape0)\n");
 		printf("    spti Tape0 r weak    (Use a hardcoded really weak test key on drive Tape0)\n");
 		printf("    spti Tape0 r none    (Disable encryption and decryption on drive Tape0)\n");
 		return;
@@ -494,7 +494,7 @@ main(
 		//  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
 	}
 
-	BOOL capRfc3394 = FALSE;
+	BOOL capRfc3447 = FALSE;
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
 		length = ResetSrbIn(&sptwb_ex, CDB12GENERIC_LENGTH);
@@ -536,8 +536,8 @@ main(
 					description = "Plain-text";
 					break;
 				case SPIN_TAPE_KEY_FORMAT_WRAPPED:
-					description = "Wrapped/RFC 3394";
-					capRfc3394 = TRUE;
+					description = "Wrapped/RFC 3447";
+					capRfc3447 = TRUE;
 					break;
 				default:
 					description = "Unknown";
@@ -553,13 +553,13 @@ main(
 		//  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
 	}
 
-	if (capRfc3394)
+	if (capRfc3447)
 	{
-		printf("This device supports RFC 3394 AES Key-Wrapping.\n\n");
+		printf("This device supports RFC 3447 AES Key-Wrapping.\n\n");
 	}
 	else
 	{
-		fprintf(stderr, "This device doesn't support RFC 3394 AES Key-Wrapping.\n");
+		fprintf(stderr, "This device doesn't support RFC 3447 AES Key-Wrapping.\n");
 	}
 
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
@@ -591,8 +591,8 @@ main(
 		//PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
 	}
 
-	// If the device supports AES key wrapping (RFC 3394), try to obtain the public key
-	if (capRfc3394 && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
+	// If the device supports AES key wrapping (RFC 3447), try to obtain the public key
+	if (capRfc3447 && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
 		length = ResetSrbIn(&sptwb_ex, CDB12GENERIC_LENGTH);
 		sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
