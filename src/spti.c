@@ -84,6 +84,17 @@ LPCSTR BusTypeStrings[] = {
 };
 #define NUMBER_OF_BUS_TYPE_STRINGS (sizeof(BusTypeStrings)/sizeof(BusTypeStrings[0]))
 
+LPCSTR DeviceIdentifiers[] = {
+	"Logical Unit Identifier",
+	"Port Name",
+	"Port Identifier",
+	"Target Port Group Identifier",
+	"Target Name (code set 1)",
+	"Target Name (code set 2)",
+	"Not Defined"
+};
+#define NUMBER_OF_DEVICE_IDENTIFIERS (sizeof(DeviceIdentifiers)/sizeof(DeviceIdentifiers[0]))
+
 VOID
 __cdecl
 main(
@@ -124,7 +135,16 @@ main(
 
 	shareMode = FILE_SHARE_READ | FILE_SHARE_WRITE;  // default
 	accessMode = GENERIC_WRITE | GENERIC_READ;       // default
-	char* wrappedKey = NULL;
+	int logicalUnitIdentifierLength = 0;
+	UCHAR* logicalUnitIdentifier = NULL;
+	BOOL capRfc3447 = FALSE;
+	CHAR aesGcmAlgorithmIndex = -1;
+	int wrappedDescriptorsLength = 0;
+	UCHAR* wrappedDescripters = NULL;
+	int keyType = -1;
+	int keyFormat = -1;
+	int keyLength = 0;
+	UCHAR* key = NULL;
 	BOOL testKey = FALSE;
 	BOOL noKey = FALSE;
 
@@ -154,14 +174,29 @@ main(
 	}
 
 	if (argc == 4) {
-		if (strcmp(argv[3],"weak") == 0) {
+		if (strcmp(argv[3], "weak") == 0) {
 			testKey = TRUE;
 		}
 		else if (strcmp(argv[3], "none") == 0) {
 			noKey = TRUE;
 		}
 		else {
-			wrappedKey = argv[3];
+			key = (UCHAR*)argv[3];
+			keyLength = (int)strlen(argv[3]);
+			switch (keyLength)
+			{
+			case SPIN_TAPE_PUBKEY_LENGTH_RSA2048:
+				keyType = SPIN_TAPE_PUBKEY_TYPE_RSA2048;
+				keyFormat = SPIN_TAPE_KEY_FORMAT_WRAPPED;
+				break;
+			case SPIN_TAPE_PUBKEY_LENGTH_ECC521:
+				keyType = SPIN_TAPE_PUBKEY_TYPE_ECC521;
+				keyFormat = SPIN_TAPE_KEY_FORMAT_WRAPPED;
+				break;
+			case SPIN_TAPE_PUBKEY_LENGTH_AES256:
+				keyFormat = SPIN_TAPE_KEY_FORMAT_PLAIN;
+				break;
+			}
 		}
 	}
 
@@ -197,14 +232,7 @@ main(
 
 	printf("Alignment mask: 0x%08x\n\n", alignmentMask);
 
-	if (storageBusType == BusTypeSas)
-	{
-		printf("Using SAS.\n\n");
-	}
-	else
-	{
-		printf("Using %s - only tested with SAS.\n\n", BusTypeStrings[storageBusType]);
-	}
+	printf("Using %s%s.\n\n", BusTypeStrings[storageBusType], storageBusType == BusTypeSas ? "" : " - only tested with SAS");
 
 	//
 	// Send SCSI Pass Through
@@ -311,8 +339,6 @@ main(
 	{
 		printf("Using SCSI_REQUEST_BLOCK - only tested with STORAGE_REQUEST_BLOCK.\n\n\n");
 	}
-
-	CHAR aesGcmAlgorithmIndex = -1;
 
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
@@ -494,7 +520,62 @@ main(
 		//  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
 	}
 
-	BOOL capRfc3447 = FALSE;
+	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
+	{
+		length = ResetSrbIn(&sptwb_ex, CDB6GENERIC_LENGTH);
+		sptwb_ex.spt.Cdb[0] = SCSIOP_INQUIRY;
+		sptwb_ex.spt.Cdb[1] = CDB_INQUIRY_EVPD;
+		sptwb_ex.spt.Cdb[2] = VPD_DEVICE_IDENTIFIERS;
+		sptwb_ex.spt.Cdb[3] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
+		sptwb_ex.spt.Cdb[4] = SPTWB_DATA_LENGTH & 0xFF;
+
+		status = DeviceIoControl(fileHandle,
+			IOCTL_SCSI_PASS_THROUGH_EX,
+			&sptwb_ex,
+			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
+			&sptwb_ex,
+			length,
+			&returned,
+			FALSE);
+
+		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+		{
+			printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
+			PrintStatusResultsEx(status, returned, &sptwb_ex, length);
+		}
+		int pageCode = sptwb_ex.ucDataBuf[1];
+		if (pageCode == VPD_DEVICE_IDENTIFIERS) {
+
+			printf("Parsing Device Identifiers page...\n");
+			printf("Peripheral Qualifier: 0x%01X\n", (sptwb_ex.ucDataBuf[0] & 0b11100000) >> 5);
+			printf("Peripheral Device Type: 0x%02X\n", sptwb_ex.ucDataBuf[0] & 0x1F);
+			int pageLength = sptwb_ex.ucDataBuf[3];
+			printf("Page Length: %d bytes (0x%02X)\n\n", pageLength, pageLength);
+			int identifierTotalLength = 0;
+			int currentIdentifier = 0;
+			for (int i = 4; i < pageLength; i += identifierTotalLength)
+			{
+				//printf("Protocol identifier: 0x%01X\n", (sptwb_ex.ucDataBuf[i] & 0xF0) >> 8);
+				//printf("Code Set: 0x%01X\n", sptwb_ex.ucDataBuf[i] & 0xF);
+				//printf("PIV: 0x%01X\n", (sptwb_ex.ucDataBuf[i + 1] & 0b10000000) >> 7);
+				//printf("Rsvd: 0x%01X\n", (sptwb_ex.ucDataBuf[i + 1] & 0b01000000) >> 6);
+				//printf("Association: 0x%01X\n", (sptwb_ex.ucDataBuf[i + 1] & 0b00110000) >> 4);
+				printf("Identifier Type: 0x%01X\n", sptwb_ex.ucDataBuf[i + 1] & 0xF);
+				printf("Device Identifier (%s):\n", currentIdentifier < NUMBER_OF_DEVICE_IDENTIFIERS ? DeviceIdentifiers[currentIdentifier] : DeviceIdentifiers[NUMBER_OF_DEVICE_IDENTIFIERS - 1]);
+				int identifierLength = sptwb_ex.ucDataBuf[i + 3];
+				if (currentIdentifier == 0) {
+					logicalUnitIdentifierLength = identifierLength;
+					logicalUnitIdentifier = calloc(sizeof(UCHAR), identifierLength);
+					memcpy(logicalUnitIdentifier, sptwb_ex.ucDataBuf + i + 4, identifierLength);
+				}
+				identifierTotalLength = 4 + identifierLength;
+				PrintDataBuffer(sptwb_ex.ucDataBuf + i + 4, identifierLength);
+				currentIdentifier++;
+			}
+		}
+
+	}
+
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
 		length = ResetSrbIn(&sptwb_ex, CDB12GENERIC_LENGTH);
@@ -553,14 +634,10 @@ main(
 		//  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
 	}
 
-	if (capRfc3447)
-	{
-		printf("This device supports RFC 3447 AES Key-Wrapping.\n\n");
-	}
-	else
-	{
-		fprintf(stderr, "This device doesn't support RFC 3447 AES Key-Wrapping.\n");
-	}
+	fprintf(
+		capRfc3447 ? stdout : stderr,
+		"This device %s RFC 3447 AES Key-Wrapping.\n\n", capRfc3447 ? "supports" : "doesn't support"
+	);
 
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
@@ -628,73 +705,77 @@ main(
 			int publicKeyLength = sptwb_ex.ucDataBuf[12] << 8 | sptwb_ex.ucDataBuf[13];
 			int modulusLength = 0;
 			int exponentLength = 0;
-			char* keyType;
+			char* description;
 			BOOL keyValueConsistent = FALSE;
 			BOOL keyLengthConsistent = FALSE;
 			switch (publicKeyType) {
 			case SPIN_TAPE_PUBKEY_TYPE_RSA2048:
-				keyType = "RSA-2048";
+				description = "RSA-2048";
 				keyValueConsistent = publicKeyFormat == SPIN_TAPE_PUBKEY_FORMAT_RSA2048;
 				keyLengthConsistent = publicKeyLength == SPIN_TAPE_PUBKEY_LENGTH_RSA2048;
 				modulusLength = SPIN_TAPE_PUBKEY_LENGTH_RSA2048 / 2; // 256 bytes for RSA-2048
 				exponentLength = SPIN_TAPE_PUBKEY_LENGTH_RSA2048 / 2; // 256 bytes for RSA-2048
 				break;
 			case SPIN_TAPE_PUBKEY_TYPE_ECC521:
-				keyType = "ECC-521";
+				description = "ECC-521";
 				keyValueConsistent = publicKeyFormat == SPIN_TAPE_PUBKEY_FORMAT_ECC521;
 				keyLengthConsistent = publicKeyLength == SPIN_TAPE_PUBKEY_LENGTH_ECC521;
 				// TODO: Work out how X9.63 stores ECC keys and how to calculate length parameters
 				break;
 			default:
-				keyType = "Unknown";
+				description = "Unknown";
 				break;
 			}
 			if (!keyValueConsistent)
 			{
-				fprintf(stderr, "Public Key type %s and key format 0x%08x are not consistent.\n", keyType, publicKeyFormat);
+				fprintf(stderr, "Public Key type %s and key format 0x%08x are not consistent.\n", description, publicKeyFormat);
 				CloseHandle(fileHandle);
 				return;
 			}
 			if (!keyLengthConsistent)
 			{
-				fprintf(stderr, "Public Key type %s and wrapped key length (%d bytes) are not consistent.\n", keyType, publicKeyLength);
+				fprintf(stderr, "Public Key type %s and wrapped key length (%d bytes) are not consistent.\n", description, publicKeyLength);
 				CloseHandle(fileHandle);
 				return;
 			}
-			printf("Public Key Type: %s\n", keyType);
-			char* publicKeyModulus = calloc(sizeof(UCHAR), modulusLength);
-			char* publicKeyExponent = calloc(sizeof(UCHAR), exponentLength);
+			printf("Public Key Type: %s\n", description);
+			UCHAR* publicKeyModulus = calloc(modulusLength, sizeof(UCHAR));
+			UCHAR* publicKeyExponent = calloc(exponentLength, sizeof(UCHAR));
 			BOOL leadingZeros = TRUE;
 			int modulusOffset = 0;
-			memcpy(publicKeyModulus, &sptwb_ex.ucDataBuf[14], modulusLength);
-			for (int i = 0; i < modulusLength; i++)
-			{
-				if (leadingZeros) {
-					leadingZeros = publicKeyModulus[i] == 0;
+			if (publicKeyModulus != NULL) {
+				memcpy(publicKeyModulus, &sptwb_ex.ucDataBuf[14], modulusLength);
+				for (int i = 0; i < modulusLength; i++)
+				{
 					if (leadingZeros) {
-						modulusOffset++;
-						continue;
-					}
-					else
-					{
-						break;
+						leadingZeros = publicKeyModulus[i] == 0;
+						if (leadingZeros) {
+							modulusOffset++;
+							continue;
+						}
+						else
+						{
+							break;
+						}
 					}
 				}
 			}
 			leadingZeros = TRUE;
 			int exponentOffset = 0;
-			memcpy(publicKeyExponent, &sptwb_ex.ucDataBuf[14 + modulusLength], exponentLength);
-			for (int i = 0; i < exponentLength; i++)
-			{
-				if (leadingZeros) {
-					leadingZeros = publicKeyExponent[i] == 0;
+			if (publicKeyExponent != NULL) {
+				memcpy(publicKeyExponent, &sptwb_ex.ucDataBuf[14 + modulusLength], exponentLength);
+				for (int i = 0; i < exponentLength; i++)
+				{
 					if (leadingZeros) {
-						exponentOffset++;
-						continue;
-					}
-					else
-					{
-						break;
+						leadingZeros = publicKeyExponent[i] == 0;
+						if (leadingZeros) {
+							exponentOffset++;
+							continue;
+						}
+						else
+						{
+							break;
+						}
 					}
 				}
 			}
@@ -731,6 +812,22 @@ main(
 					printf("%X", (publicKeyExponent[i] & 0xFF) >> 4); // Upper 4 bits
 					printf("%X", publicKeyExponent[i] & 0x0F); // Lower 4 bits
 				}
+				printf("\n");
+				wrappedDescriptorsLength = 4 + logicalUnitIdentifierLength + 4 + 1;
+				wrappedDescripters = calloc(wrappedDescriptorsLength, sizeof(UCHAR));
+				wrappedDescripters[2] = (logicalUnitIdentifierLength >> 8) & 0xF;
+				wrappedDescripters[3] = logicalUnitIdentifierLength & 0xF;
+				memcpy(wrappedDescripters + 4, logicalUnitIdentifier, logicalUnitIdentifierLength);
+				wrappedDescripters[4 + logicalUnitIdentifierLength + 0] = 0x4;
+				wrappedDescripters[4 + logicalUnitIdentifierLength + 3] = 0x1;
+				wrappedDescripters[4 + logicalUnitIdentifierLength + 4] = 0x20;
+				printf("Wrapped Key Descriptors: ");
+				for (int i = 0; i < 3 + logicalUnitIdentifierLength + 4; i++)
+				{
+					printf("%X", (wrappedDescripters[i] & 0xFF) >> 4); // Upper 4 bits
+					printf("%X", wrappedDescripters[i] & 0x0F); // Lower 4 bits
+				}
+				printf("\n\n");
 			}
 			else
 			{
@@ -738,30 +835,139 @@ main(
 			}
 			free(publicKeyModulus);
 			free(publicKeyExponent);
-
-			printf("\n\n");
 		}
 
 		//  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
 
 	}
 
-	//    if (capRfc3394 && wrappedKey != NULL && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	if ((testKey || noKey) && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	{
-		//int wrappedKeyLength = strlen(wrappedKey) / 2;
-		//printf("Wrapped key length: %d bytes\n", wrappedKeyLength);
 
-		if (aesGcmAlgorithmIndex != -1)
-		{
-			printf("AES-GCM algorithm index: 0x%02x\n\n", aesGcmAlgorithmIndex);
-		}
-		else
+	if (capRfc3447 && keyFormat == SPIN_TAPE_KEY_FORMAT_WRAPPED && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
+	{
+		int wrappedKeyLength = keyLength / 2;
+		printf("Wrapped key length: %d bytes\n", wrappedKeyLength);
+
+		if (aesGcmAlgorithmIndex == -1)
 		{
 			fprintf(stderr, "AES-GCM algorithm index not found.\n\n");
 			CloseHandle(fileHandle);
 			return;
 		}
+
+		printf("AES-GCM algorithm index: 0x%02x\n\n", aesGcmAlgorithmIndex);
+
+		fprintf(stderr, "************************************************\n\n");
+		fprintf(stderr, "  Warning: Wrapped keys do not currently work.\n\n");
+		fprintf(stderr, "************************************************\n\n");
+
+		int kadTotalLength = 0;
+		PPLAIN_KEY_DESCRIPTOR kad = NULL;
+		if (!noKey) {
+			char* kadName = "Test2";
+			int kadLength = (int)strlen(kadName);
+			kadTotalLength = FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[kadLength]);
+			kad = malloc(kadTotalLength);
+			ZeroMemory(kad, sizeof(PLAIN_KEY_DESCRIPTOR));
+			kad->Type = SPOUT_TAPE_KAD_PLAIN_TYPE_AUTH; // TODO: Check length is less than *Maximum Authenticated Key-Associated Data Bytes*
+			kad->Length[0] = (kadLength & 0xFF00) >> 8;
+			kad->Length[1] = kadLength & 0xFF;
+			memcpy(kad->Descriptor, kadName, kadLength);
+			printf("KAD Descriptor with length %d:\n\n", kadTotalLength);
+			PrintDataBuffer((PUCHAR)kad, kadTotalLength);
+		}
+
+		KEY_HEADER keyHeader = { 0 };
+		keyHeader.PageCode[0] = (SPOUT_TAPE_SET_DATA_ENCRYPTION >> 8) & 0xFF;
+		keyHeader.PageCode[1] = SPOUT_TAPE_SET_DATA_ENCRYPTION & 0xFF;
+		keyHeader.Scope = 0x2;
+		//keyHeader.CKOD = 0b1;
+		//keyHeader.CKORP = 0b1;
+		//keyHeader.CKORL = 0b1;
+		keyHeader.EncryptionMode = 0x2;
+		keyHeader.DecriptionMode = 0x2;
+		keyHeader.AlgorithmIndex = aesGcmAlgorithmIndex;
+		keyHeader.KeyFormat = (UCHAR)keyFormat;
+		keyHeader.KADFormat = SPOUT_TAPE_KAD_FORMAT_ASCII;
+
+		int wrappedKeyTotalLength = 4 + wrappedDescriptorsLength + 2 + wrappedKeyLength - 2;
+		wrappedDescriptorsLength = 0;
+		UCHAR* wrappedKey = calloc(wrappedKeyTotalLength, sizeof(UCHAR));
+		wrappedKey[0] = (keyType >> 8) & 0xFF;
+		wrappedKey[1] = keyType & 0xFF;
+		wrappedKey[2] = (wrappedDescriptorsLength >> 8) & 0xFF;
+		wrappedKey[3] = wrappedDescriptorsLength & 0xFF;
+		memcpy(wrappedKey + 4, wrappedDescripters, wrappedDescriptorsLength);
+		wrappedKey[4 + wrappedDescriptorsLength + 0] = (wrappedKeyLength >> 8) & 0xFF;
+		wrappedKey[4 + wrappedDescriptorsLength + 1] = wrappedKeyLength & 0xFF;
+		UCHAR temp[3] = { 0 };
+		for (int i = 0; i < wrappedKeyLength; i++)
+		{
+			memcpy(temp, &key[i * 2], 2);
+			wrappedKey[4 + wrappedDescriptorsLength + 2 + i] = strtol((char*)temp, NULL, 16) & 0xFF;
+		}
+
+		int pageLength = sizeof(KEY_HEADER) - 4 + 2 + wrappedKeyTotalLength + kadTotalLength;
+		keyHeader.PageLength[0] = (pageLength >> 8) & 0xFF;
+		keyHeader.PageLength[1] = pageLength & 0xFF;
+
+		length = ResetSrbOut(&sptwb_ex, CDB12GENERIC_LENGTH);
+		struct _SECURITY_PROTOCOL_OUT spout = { '\0' };
+		spout.OperationCode = SCSIOP_SECURITY_PROTOCOL_OUT;
+		spout.SecurityProtocol = SECURITY_PROTOCOL_TAPE; // tape encryption
+		spout.SecurityProtocolSpecific[0] = (SPOUT_TAPE_SET_DATA_ENCRYPTION >> 8) & 0xFF; // device server key wrapping public key page
+		spout.SecurityProtocolSpecific[1] = SPOUT_TAPE_SET_DATA_ENCRYPTION & 0xFF;
+		int allocationLength = 4 + pageLength;
+		spout.AllocationLength[0] = (allocationLength >> 24) & 0xFF;
+		spout.AllocationLength[1] = (allocationLength >> 16) & 0xFF;
+		spout.AllocationLength[2] = (allocationLength >> 8) & 0xFF;
+		spout.AllocationLength[3] = allocationLength & 0xFF;
+		memcpy(sptwb_ex.spt.Cdb, &spout, sizeof(struct _SECURITY_PROTOCOL_OUT));
+		printf("Security Protocol Out:\n\n");
+		PrintDataBuffer(sptwb_ex.spt.Cdb, sizeof(spout));
+		sptwb_ex.spt.DataOutTransferLength = allocationLength;
+
+		memcpy(sptwb_ex.ucDataBuf, &keyHeader, sizeof(keyHeader));
+		sptwb_ex.ucDataBuf[sizeof(keyHeader) + 0] = (wrappedKeyTotalLength >> 8) & 0xFF;
+		sptwb_ex.ucDataBuf[sizeof(keyHeader) + 1] = wrappedKeyTotalLength & 0xFF;
+		memcpy(sptwb_ex.ucDataBuf + sizeof(keyHeader) + 2, wrappedKey, wrappedKeyTotalLength);
+		memcpy(sptwb_ex.ucDataBuf + sizeof(keyHeader) + 2 + wrappedKeyTotalLength, kad, kadTotalLength);
+
+		printf("Buffer length: %d (0x%02x)\n\n", allocationLength, allocationLength);
+		printf("SRB length: %d (0x%02x)\n\n", length, length);
+
+
+		status = DeviceIoControl(fileHandle,
+			IOCTL_SCSI_PASS_THROUGH_EX,
+			&sptwb_ex,
+			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
+			&sptwb_ex,
+			length,
+			&returned,
+			FALSE);
+
+		printf("Buffer:\n\n");
+		PrintDataBuffer((PUCHAR)&sptwb_ex.ucDataBuf, sptwb_ex.spt.DataOutTransferLength);
+
+		//PrintSenseInfo(&sptdwb_ex.sptd);
+		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+		{
+			printf("Status: 0x%02X, SCSI Status: 0x%02x\n\n", status, sptwb_ex.spt.ScsiStatus);
+		}
+		PrintStatusResultsEx(status, returned, &sptwb_ex, returned);
+
+	}
+
+
+	if ((testKey || noKey) && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
+	{
+		if (aesGcmAlgorithmIndex == -1)
+		{
+			fprintf(stderr, "AES-GCM algorithm index not found.\n\n");
+			CloseHandle(fileHandle);
+			return;
+		}
+
+		printf("AES-GCM algorithm index: 0x%02x\n\n", aesGcmAlgorithmIndex);
 
 		int kadTotalLength = 0;
 		PPLAIN_KEY_DESCRIPTOR kad = NULL;
@@ -851,193 +1057,99 @@ main(
 			printf("Status: 0x%02X, SCSI Status: 0x%02x\n\n", status, sptwb_ex.spt.ScsiStatus);
 		}
 		PrintStatusResultsEx(status, returned, &sptwb_ex, returned);
-
-		/*
-		struct _PLAIN_KEY plainKey = { '\0' };
-		plainKey.PageCode[0] = (SPOUT_TAPE_SET_DATA_ENCRYPTION >> 8) & 0xFF;
-		plainKey.PageCode[1] = SPOUT_TAPE_SET_DATA_ENCRYPTION & 0xFF;
-		int pageLength = 52;
-
-
-		sptwb_ex.ucDataBuf[0] = (SPOUT_TAPE_SET_DATA_ENCRYPTION >> 8) & 0xFF;
-		sptwb_ex.ucDataBuf[1] = SPOUT_TAPE_SET_DATA_ENCRYPTION & 0xFF;
-		int pageLength = 20 + 10 + wrappedKeyLength + 2 + 2;
-		sptwb_ex.ucDataBuf[2] = (pageLength >> 8) & 0xFF;
-		sptwb_ex.ucDataBuf[3] = pageLength & 0xFF;
-		UCHAR scope = 0;
-		UCHAR lock = FALSE;
-		sptwb_ex.ucDataBuf[4] = scope << 5 | lock;
-		UCHAR clearKeyOnDemount = 1;
-		UCHAR clearKeyOnReservationPreEmpted = 1;
-		UCHAR clearKeyOnReservationLoss = 1;
-		// checkExternalEnryptionMode 0x00 << 6 | rawDecryptionModeControl 0x00 << 4 | SDK?? 0x0 << 3
-		sptwb_ex.ucDataBuf[5] = clearKeyOnDemount << 2 | clearKeyOnReservationPreEmpted << 1 | clearKeyOnReservationLoss;
-		sptwb_ex.ucDataBuf[6] = 0x2; // encryption mode, 0x2 = encrypt
-		sptwb_ex.ucDataBuf[7] = 0x2; // decryption mode, 0x2 = decrypt
-		sptwb_ex.ucDataBuf[8] = aesGcmAlgorithmIndex; // algorithm index
-		sptwb_ex.ucDataBuf[9] = SPIN_TAPE_KEY_FORMAT_WRAPPED; // logical block encryption key format
-		sptwb_ex.ucDataBuf[10] = 0; // KAD format
-		*/
-		/*
-		* Wrapped Key Descriptor:
-		* UCHAR Type;
-		* UCHAR Reserved1;
-		* UCHAR DescriptorLength[2];
-		* UCHAR Descriptor[0];
-		*
-		* Type 0x0: LUN (logical unit name) from Device Identifier Inquiry Page
-		* Type 0x4: Wrapped key length
-		*/
-		/*
-		struct _WRAPPED_KEY_DESCRIPTOR descriptorLunId = { '\0' };
-		descriptorLunId.Type = 0x0;
-		struct _WRAPPED_KEY_DESCRIPTOR descriptorKeyLength = { '\0' };
-		descriptorKeyLength.Type = 0x4;
-
-		// Wrapped key -> ucDataBuf[20...n]
-		// [0] 0x00 - parameter set
-		// [2] 0x00 - label length
-		// [4] 0x00...n - label
-		sptwb_ex.ucDataBuf[20 + 0] = 0x0;
-		sptwb_ex.ucDataBuf[20 + 1] = 0x0;
-		//char* labelText = "test";
-		sptwb_ex.ucDataBuf[20 + 3] = 8;
-		sptwb_ex.ucDataBuf[20 + 4] = 't';
-		sptwb_ex.ucDataBuf[20 + 5] = 'e';
-		sptwb_ex.ucDataBuf[20 + 6] = 's';
-		sptwb_ex.ucDataBuf[20 + 7] = 't';
-		sptwb_ex.ucDataBuf[20 + 8] = (wrappedKeyLength & 0xFF00) >> 8;
-		sptwb_ex.ucDataBuf[20 + 9] = wrappedKeyLength & 0xFF;
-		char* temp = "";
-		for (int i = 0; i < wrappedKeyLength; i++)
-		{
-			memcpy(temp, &wrappedKey[i * 2], 2);
-			sptwb_ex.ucDataBuf[20 + 10 + i] = strtol(temp, NULL, 16) & 0xFF;
-		}
-		// [n+1] 0x0000 - wrapped key length (m-(n+2))
-		// [n+3] 0x00...m - wrapped key <-- hex result of RSA-2048 encrypt?
-		// [m+1] 0x0000 - signature length (z-(m+2))
-		// [m+3] 0x00zz - signature
-
-		// Wrapped key descriptor -> ucDataBuf[z+1...n]
-		// [0] 0x00 - descriptor type
-		// [2] 0x0000 - descriptor length
-		// [4] 0x00...n - descriptor
-
-
-		//sptwb_ex.ucDataBuf[18] = wrappedKeyLength & 0xFFFF;
-		//memcpy(&sptwb_ex.ucDataBuf[20], wrappedKey, wrappedKeyLength);
-		//sptwb_ex.ucDataBuf[20 + wrappedKeyLength] = 0; // KAD descriptors list
-
-		PrintDataBuffer(sptwb_ex.ucDataBuf, pageLength);
-		*/
 	}
+
 
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		length = ResetSrbIn(&sptwb_ex, CDB12GENERIC_LENGTH);
-		sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
-		sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_TAPE; // tape encryption
-		sptwb_ex.spt.Cdb[3] = SPIN_TAPE_ENCRYPTION_STATUS; // supported key formats page
-		sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
-		sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
-		sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
-		sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
-
-		status = DeviceIoControl(fileHandle,
-			IOCTL_SCSI_PASS_THROUGH_EX,
-			&sptwb_ex,
-			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-			&sptwb_ex,
-			length,
-			&returned,
-			FALSE);
-
-		printf("Encryption Status:\n\n");
-		PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
-
-		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
-		{
-			printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, &sptwb_ex, length);
-		}
+		SecurityProtocolInSrbIn(fileHandle, &sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS, "Encryption Status");
+		SecurityProtocolInSrbIn(fileHandle, &sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS, "Next Block Encryption Status");
+		SecurityProtocolInSrbIn(fileHandle, &sptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_CERTIFICATE_DATA, "Certificate Data");
 	}
-
-	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	{
-		length = ResetSrbIn(&sptwb_ex, CDB12GENERIC_LENGTH);
-		sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
-		sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_TAPE; // tape encryption
-		sptwb_ex.spt.Cdb[3] = SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS; // supported key formats page
-		sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
-		sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
-		sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
-		sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
-
-		status = DeviceIoControl(fileHandle,
-			IOCTL_SCSI_PASS_THROUGH_EX,
-			&sptwb_ex,
-			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-			&sptwb_ex,
-			length,
-			&returned,
-			FALSE);
-
-		printf("Next Block Encryption Status:\n\n");
-		PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
-
-		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
-		{
-			printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, &sptwb_ex, length);
-		}
-	}
-
-	/*
-
-if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-{
-	length = ResetSrbIn(&sptwb_ex, CDB12GENERIC_LENGTH);
-	sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
-	sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_INFO; // security protocol information
-	sptwb_ex.spt.Cdb[3] = SPIN_CERTIFICATE_DATA; // certificate data
-	sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
-	sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
-	sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
-	sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
-
-	status = DeviceIoControl(fileHandle,
-		IOCTL_SCSI_PASS_THROUGH_EX,
-		&sptwb_ex,
-		sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-		&sptwb_ex,
-		length,
-		&returned,
-		FALSE);
-
-	if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
-	{
-		printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
-		PrintStatusResultsEx(status, returned, &sptwb_ex, length);
-	}
-	printf("Parsing Certificate data...\n");
-	int certificateLength = sptwb_ex.ucDataBuf[2] << 8 | sptwb_ex.ucDataBuf[3];
-	printf("Certificate length: %d bytes\n", certificateLength);
-}
-
-/*
-* Unauthenticated Key-Associated Data (KAD) and Authenticated Key-Associated Data (AKAD)
-*
-* This is used to store data with every record written that can be used to ascertain which key was used to encrypt that record.
-*
-*
-*/
-
 
 	if (pUnAlignedBuffer != NULL) {
 		free(pUnAlignedBuffer);
 	}
+	if (logicalUnitIdentifier != NULL) {
+		free(logicalUnitIdentifier);
+	}
+	if (wrappedDescripters != NULL) {
+		free(wrappedDescripters);
+	}
 	CloseHandle(fileHandle);
+}
+
+VOID
+SecurityProtocolInSrbIn(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR securityProtocol, UCHAR pageCode, CHAR* cdbDescription)
+{
+	UCHAR cdbLength = GetCdbLength(securityProtocol);
+	if (cdbLength == 0)
+	{
+		return;
+	}
+	UCHAR multibyteParams[13] = { '\0' };
+	multibyteParams[1] = pageCode; // supported key formats page
+	multibyteParams[4] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
+	multibyteParams[5] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
+	multibyteParams[6] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
+	multibyteParams[7] = SPTWB_DATA_LENGTH & 0xFF;
+
+	SimpleSrbIn(fileHandle, psptwb_ex, SCSIOP_SECURITY_PROTOCOL_IN, securityProtocol, multibyteParams, cdbDescription);
+}
+
+VOID
+SimpleSrbIn(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR opCode, UCHAR params, UCHAR* multibyteParams, CHAR* cdbDescription)
+{
+	ULONG returned = 0;
+	UCHAR cdbLength = GetCdbLength(opCode);
+	if (cdbLength == 0) {
+		return;
+	}
+	ULONG length = ResetSrbIn(psptwb_ex, cdbLength);
+	psptwb_ex->spt.Cdb[0] = opCode;
+	psptwb_ex->spt.Cdb[1] = params;
+	memcpy(psptwb_ex->spt.Cdb + 2, multibyteParams, cdbLength - 3);
+	psptwb_ex->spt.Cdb[cdbLength - 1] = '\0';
+
+	BOOL status = DeviceIoControl(fileHandle,
+		IOCTL_SCSI_PASS_THROUGH_EX,
+		psptwb_ex,
+		sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
+		psptwb_ex,
+		length,
+		&returned,
+		FALSE);
+
+	printf("%s:\n\n", cdbDescription);
+	PrintDataBuffer(psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
+
+	if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
+	{
+		printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
+		PrintStatusResultsEx(status, returned, psptwb_ex, length);
+	}
+}
+
+UCHAR
+GetCdbLength(UCHAR opCode)
+{
+	UCHAR groupCode = (opCode & 0xE0) >> 5;
+	switch (groupCode)
+	{
+	case 0:
+	case 3:
+		return CDB6GENERIC_LENGTH;
+	case 1:
+	case 2:
+		return CDB10GENERIC_LENGTH;
+	case 5:
+		return CDB12GENERIC_LENGTH;
+	case 4: // 16 byte commands
+	case 6: // vendor-unique commands
+	case 7: // not supported
+	default:
+		return 0;
+	}
 }
 
 int

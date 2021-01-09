@@ -56,14 +56,25 @@ typedef struct _SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX {
     UCHAR             ucSenseBuf[SPT_SENSE_LENGTH];
 } SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX, *PSCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX;
 
-typedef struct _WRAPPED_KEY_DESCRIPTOR {
-    UCHAR Type;
-    UCHAR Reserved1;
-    UCHAR Length[2];
-#if !defined(__midl)
-    UCHAR Descriptor[0];
-#endif
-} WRAPPED_KEY_DESCRIPTOR, *PWRAPPED_KEY_DESCRIPTOR;
+typedef struct _KEY_HEADER {
+    UCHAR PageCode[2];
+    UCHAR PageLength[2];
+    UCHAR Lock : 1; // LSb of [4]
+    UCHAR Reserved1 : 4;
+    UCHAR Scope : 3; // MSb of [4]
+    UCHAR CKORL : 1; // LSb of [5]
+    UCHAR CKORP : 1;
+    UCHAR CKOD : 1;
+    UCHAR SDK : 1;
+    UCHAR RDMC : 2;
+    UCHAR CEEM : 2; // MSb of [5];
+    UCHAR EncryptionMode;
+    UCHAR DecriptionMode;
+    UCHAR AlgorithmIndex;
+    UCHAR KeyFormat;
+    UCHAR KADFormat;
+    UCHAR Reserved2[7];
+} KEY_HEADER, *PKEY_HEADER;
 
 typedef struct _PLAIN_KEY {
     UCHAR PageCode[2];
@@ -99,6 +110,15 @@ typedef struct _PLAIN_KEY_DESCRIPTOR {
     UCHAR Descriptor[0];
 #endif
 } PLAIN_KEY_DESCRIPTOR, *PPLAIN_KEY_DESCRIPTOR;
+
+VOID
+SecurityProtocolInSrbIn(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR securityProtocol, UCHAR pageCode, CHAR* cdbDescription);
+
+VOID
+SimpleSrbIn(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR opCode, UCHAR params, UCHAR* multibyteParams, CHAR* cdbDescription);
+
+UCHAR
+GetCdbLength(UCHAR groupCode);
 
 int
 ResetSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength);
@@ -188,6 +208,7 @@ QueryPropertyForDevice(_In_ HANDLE, _Out_ PULONG, _Out_ PUCHAR, _Out_ PSTORAGE_B
 #define SPIN_TAPE_PUBKEY_FORMAT_RSA2048 0x00000000
 #define SPIN_TAPE_PUBKEY_FORMAT_ECC521 0x00000000
 
+#define SPIN_TAPE_PUBKEY_LENGTH_AES256 64
 #define SPIN_TAPE_PUBKEY_LENGTH_RSA2048 512
 #define SPIN_TAPE_PUBKEY_LENGTH_ECC521 133
 
