@@ -238,6 +238,112 @@ main(
 	// Send SCSI Pass Through
 	//
 
+	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
+	{
+		UCHAR cdbLength = GetCdbLength(SCSIOP_SECURITY_PROTOCOL_IN);
+		if (cdbLength == 0) {
+			return;
+		}
+		length = ResetSrbIn(&sptwb_ex, cdbLength);
+		sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
+		sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_INFO;
+		sptwb_ex.spt.Cdb[3] = SPIN_SECURITY_COMPLIANCE;
+		sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
+		sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
+		sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
+		sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
+
+		status = DeviceIoControl(fileHandle,
+			IOCTL_SCSI_PASS_THROUGH_EX,
+			&sptwb_ex,
+			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
+			&sptwb_ex,
+			length,
+			&returned,
+			FALSE);
+
+		printf("Parsing Security Compliance page...\n");
+		int pageLength = (sptwb_ex.ucDataBuf[0] << 24) & 0xFF000000 | (sptwb_ex.ucDataBuf[1] << 16) & 0xFF0000 | (sptwb_ex.ucDataBuf[2] << 8) & 0xFF00 | sptwb_ex.ucDataBuf[3] & 0xFF;
+		int currentDescriptorLength = 0;
+		for (int i = 0; i < pageLength; i += currentDescriptorLength)
+		{
+			int descriptorType = (sptwb_ex.ucDataBuf[4 + i + 0] << 8) & 0xFF00 | sptwb_ex.ucDataBuf[4 + i + 1] & 0xFF;
+			char* description;
+			switch (descriptorType)
+			{
+			case 0x0001:
+				description = "Security requirements for cryptographic modules";
+				break;
+			default:
+				description = "Unknown";
+				break;
+			}
+			printf("Descriptor Type: 0x%04x (%s)\n", descriptorType, description);
+			currentDescriptorLength = (sptwb_ex.ucDataBuf[4 + i + 4] << 24) & 0xFF000000 | (sptwb_ex.ucDataBuf[4 + i + 5] << 16) & 0xFF0000 | (sptwb_ex.ucDataBuf[4 + i + 6] << 8) & 0xFF00 | sptwb_ex.ucDataBuf[4 + i + 7] & 0xFF;
+			if (descriptorType == 0x0001) {
+				UCHAR fipsRevision = sptwb_ex.ucDataBuf[4 + i + 8];
+				switch (fipsRevision) {
+				case 0x32:
+					description = "FIPS 140-2";
+					break;
+				case 0x33:
+					description = "FIPS 140-3";
+					break;
+				default:
+					description = "Unknown";
+				}
+				printf("Revision: %s\n", description);
+				printf("Overall Security Level: %c\n", sptwb_ex.ucDataBuf[4 + i + 9]);
+				printf("Hardware Level: ");
+				char currentChar;
+				BOOL endOfLeadingZeroes = FALSE;
+				for (int j = 0; j < 128; j++)
+				{
+					currentChar = sptwb_ex.ucDataBuf[4 + i + 10 + j];
+					if (currentChar == 0 && !endOfLeadingZeroes) {
+						continue;
+					}
+					else if (currentChar == 0 && endOfLeadingZeroes) {
+						break;
+					}
+					else if (currentChar != 0) {
+						printf("%c", currentChar);
+						if (!endOfLeadingZeroes) {
+							endOfLeadingZeroes = TRUE;
+						}
+					}
+				}
+				printf("\n");
+				printf("Software Level: ");
+				endOfLeadingZeroes = FALSE;
+				for (int j = 0; j < 128; j++)
+				{
+					currentChar = sptwb_ex.ucDataBuf[4 + i + 138 + j];
+					if (currentChar == 0 && !endOfLeadingZeroes) {
+						continue;
+					}
+					else if (currentChar == 0 && endOfLeadingZeroes) {
+						break;
+					}
+					else if (currentChar != 0) {
+						printf("%c", currentChar);
+						if (!endOfLeadingZeroes) {
+							endOfLeadingZeroes = TRUE;
+						}
+					}
+				}
+				printf("\n");
+			}
+			i += 8;
+		}
+		printf("\n");
+
+		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+		{
+			printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
+			PrintStatusResultsEx(status, returned, &sptwb_ex, length);
+		}
+	}
 
 
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
