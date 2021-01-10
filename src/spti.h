@@ -30,13 +30,6 @@ typedef struct _SCSI_PASS_THROUGH_WITH_BUFFERS {
     UCHAR             ucSenseBuf[SPT_SENSE_LENGTH];
     UCHAR             ucDataBuf[SPTWB_DATA_LENGTH];
     } SCSI_PASS_THROUGH_WITH_BUFFERS, *PSCSI_PASS_THROUGH_WITH_BUFFERS;
-
-typedef struct _SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER {
-    SCSI_PASS_THROUGH_DIRECT sptd;
-    ULONG             Filler;      // realign buffer to double word boundary
-    UCHAR             ucSenseBuf[SPT_SENSE_LENGTH];
-} SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER, *PSCSI_PASS_THROUGH_DIRECT_WITH_BUFFER;
-    
     
 typedef struct _SCSI_PASS_THROUGH_WITH_BUFFERS_EX {
     SCSI_PASS_THROUGH_EX spt;
@@ -46,15 +39,6 @@ typedef struct _SCSI_PASS_THROUGH_WITH_BUFFERS_EX {
     UCHAR             ucSenseBuf[SPT_SENSE_LENGTH];
     UCHAR             ucDataBuf[SPTWB_DATA_LENGTH];     // buffer for DataIn or DataOut
 } SCSI_PASS_THROUGH_WITH_BUFFERS_EX, *PSCSI_PASS_THROUGH_WITH_BUFFERS_EX;
-
-
-typedef struct _SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX {
-    SCSI_PASS_THROUGH_DIRECT_EX sptd;
-    UCHAR             ucCdbBuf[SPT_CDB_LENGTH-1];       // cushion for sptd.Cdb
-    ULONG             Filler;      // realign buffer to double word boundary
-    STOR_ADDR_BTL8    StorAddress;
-    UCHAR             ucSenseBuf[SPT_SENSE_LENGTH];
-} SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX, *PSCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX;
 
 typedef struct _KEY_HEADER {
     UCHAR PageCode[2];
@@ -134,12 +118,6 @@ PrintDataBuffer(_In_reads_(BufferLength) PUCHAR DataBuffer, _In_ ULONG BufferLen
 
 VOID
 PrintInquiryData(PVOID);
-
-_Success_(return != NULL)
-_Post_writable_byte_size_(size)
-PUCHAR
-AllocateAlignedBuffer(_In_ ULONG size, _In_ ULONG AlignmentMask,
-_Outptr_result_maybenull_ PUCHAR * pUnAlignedBuffer);
 
 VOID
 PrintStatusResults(BOOL, DWORD, PSCSI_PASS_THROUGH_WITH_BUFFERS, ULONG);

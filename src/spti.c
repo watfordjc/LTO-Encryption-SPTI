@@ -109,32 +109,28 @@ main(
 	ULONG alignmentMask = 0; // default == no alignment requirement
 	UCHAR srbType = SRB_TYPE_SCSI_REQUEST_BLOCK; // default == SRB_TYPE_SCSI_REQUEST_BLOCK
 	STORAGE_BUS_TYPE storageBusType = BusTypeUnknown;
-	//  PUCHAR dataBuffer = NULL;
 	PUCHAR pUnAlignedBuffer = NULL;
 	SCSI_PASS_THROUGH_WITH_BUFFERS_EX sptwb_ex;
-	//  SCSI_PASS_THROUGH_DIRECT_WITH_BUFFER_EX sptdwb_ex;
 	CHAR string[NAME_COUNT];
 
 	ULONG length = 0,
 		errorCode = 0,
-		returned = 0,
-		sectorSize = 512;
+		returned = 0;
 
-	if ((argc < 2) || (argc > 4)) {
+	if ((argc < 2) || (argc > 3)) {
 		printf("Usage:  %s <port-name> [mode] [key]\n", argv[0]);
 		printf("Examples:\n");
-		printf("    spti Tape0           (open the tape class driver in SHARED READ/WRITE mode)\n");
-		printf("    spti Tape0 r         (open the tape class driver in SHARED READ mode)\n");
-		//printf("    spti Tape0 r D00D00  (Use RFC 3447 wrapped key 0xD00D00 on drive Tape0)\n");
-		printf("    spti Tape0 r weak    (Use a hardcoded really weak test key on drive Tape0)\n");
-		printf("    spti Tape0 r none    (Disable encryption and decryption on drive Tape0)\n");
+		printf("    spti Tape0         (open the tape class driver in SHARED READ mode)\n");
+		printf("    spti Tape0 D00D00  (Use RFC 3447 wrapped key 0xD00D00 on drive Tape0)\n");
+		printf("    spti Tape0 weak    (Use a hardcoded really weak test key on drive Tape0)\n");
+		printf("    spti Tape0 none    (Disable encryption and decryption on drive Tape0)\n");
 		return;
 	}
 
 	StringCbPrintf(string, sizeof(string), "\\\\.\\%s", argv[1]);
 
-	shareMode = FILE_SHARE_READ | FILE_SHARE_WRITE;  // default
-	accessMode = GENERIC_WRITE | GENERIC_READ;       // default
+	shareMode = FILE_SHARE_READ;
+	accessMode = GENERIC_WRITE | GENERIC_READ;
 	int logicalUnitIdentifierLength = 0;
 	UCHAR* logicalUnitIdentifier = NULL;
 	BOOL capRfc3447 = FALSE;
@@ -149,40 +145,15 @@ main(
 	BOOL noKey = FALSE;
 
 	if (argc == 3) {
-
-		switch (tolower(argv[2][0])) {
-		case 'r':
-			shareMode = FILE_SHARE_READ;
-			break;
-
-		case 'w':
-			shareMode = FILE_SHARE_WRITE;
-			break;
-
-		case 'c':
-			shareMode = FILE_SHARE_READ;
-			sectorSize = 2048;
-			break;
-
-		default:
-			printf("%s is an invalid mode.\n", argv[2]);
-			puts("\tr = read");
-			puts("\tw = write");
-			puts("\tc = read CD (2048 byte sector mode)");
-			return;
-		}
-	}
-
-	if (argc == 4) {
-		if (strcmp(argv[3], "weak") == 0) {
+		if (strcmp(argv[2], "weak") == 0) {
 			testKey = TRUE;
 		}
-		else if (strcmp(argv[3], "none") == 0) {
+		else if (strcmp(argv[2], "none") == 0) {
 			noKey = TRUE;
 		}
 		else {
-			key = (UCHAR*)argv[3];
-			keyLength = (int)strlen(argv[3]);
+			key = (UCHAR*)argv[2];
+			keyLength = (int)strlen(argv[2]);
 			switch (keyLength)
 			{
 			case SPIN_TAPE_PUBKEY_LENGTH_RSA2048:
@@ -242,6 +213,7 @@ main(
 	{
 		UCHAR cdbLength = GetCdbLength(SCSIOP_SECURITY_PROTOCOL_IN);
 		if (cdbLength == 0) {
+			CloseHandle(fileHandle);
 			return;
 		}
 		length = ResetSrbIn(&sptwb_ex, cdbLength);
@@ -1498,42 +1470,6 @@ PrintDeviceDescriptor(PSTORAGE_DEVICE_DESCRIPTOR DeviceDescriptor)
 			DeviceDescriptor->RawPropertiesLength);
 	}
 	printf("\n\n");
-}
-
-_Success_(return != NULL)
-_Post_writable_byte_size_(size)
-PUCHAR
-AllocateAlignedBuffer(
-	_In_ ULONG size,
-	_In_ ULONG AlignmentMask,
-	_Outptr_result_maybenull_ PUCHAR * pUnAlignedBuffer)
-{
-	PUCHAR ptr;
-
-	// NOTE: This routine does not allow for a way to free
-	//       memory.  This is an excercise left for the reader.
-	UINT_PTR    align64 = (UINT_PTR)AlignmentMask;
-
-	if (AlignmentMask == 0) {
-		ptr = malloc(size);
-		*pUnAlignedBuffer = ptr;
-	}
-	else {
-		ULONG totalSize;
-
-		(void)ULongAdd(size, AlignmentMask, &totalSize);
-		ptr = malloc(totalSize);
-		*pUnAlignedBuffer = ptr;
-		ptr = (PUCHAR)(((UINT_PTR)ptr + align64) & ~align64);
-	}
-
-	if (ptr == NULL) {
-		printf("Memory allocation error.  Terminating program\n");
-		exit(1);
-	}
-	else {
-		return ptr;
-	}
 }
 
 VOID
