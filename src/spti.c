@@ -506,7 +506,7 @@ main(
 			switch (capDecrypt)
 			{
 			case 0b00:
-				description = "No/Disabled";
+				description = "No Capability";
 				break;
 			case 0b01:
 				description = "Software";
@@ -515,7 +515,7 @@ main(
 				description = "Hardware";
 				break;
 			case 0b11:
-				description = "CFG_P";
+				description = "Capable with External Control";
 				break;
 			}
 			printf("Decryption Capable (Decrypt_C): %s\n", description);
@@ -523,7 +523,7 @@ main(
 			switch (capEncrypt)
 			{
 			case 0b00:
-				description = "No/Disabled";
+				description = "No Capability";
 				break;
 			case 0b01:
 				description = "Software";
@@ -532,7 +532,7 @@ main(
 				description = "Hardware";
 				break;
 			case 0b11:
-				description = "CFG_P";
+				description = "Capable with External Control";
 				break;
 			}
 			printf("Encryption Capable (Encrypt_C): %s\n", description);
@@ -540,13 +540,13 @@ main(
 			switch (capAvfclp)
 			{
 			case 0b00:
-				description = "No tape loaded";
+				description = "Not applicable or no tape loaded";
 				break;
 			case 0b01:
-				description = "False";
+				description = "Not valid at current logical position";
 				break;
 			case 0b10:
-				description = "True";
+				description = "Valid at current logical position";
 				break;
 			default:
 				description = "Unknown";
@@ -919,16 +919,16 @@ main(
 					printf("%X", publicKeyExponent[i] & 0x0F); // Lower 4 bits
 				}
 				printf("\n");
-				wrappedDescriptorsLength = 4 + logicalUnitIdentifierLength + 4 + 1;
+				wrappedDescriptorsLength = 4 + logicalUnitIdentifierLength + 4 + 2;
 				wrappedDescripters = calloc(wrappedDescriptorsLength, sizeof(UCHAR));
 				wrappedDescripters[2] = (logicalUnitIdentifierLength >> 8) & 0xF;
 				wrappedDescripters[3] = logicalUnitIdentifierLength & 0xF;
 				memcpy(wrappedDescripters + 4, logicalUnitIdentifier, logicalUnitIdentifierLength);
 				wrappedDescripters[4 + logicalUnitIdentifierLength + 0] = 0x4;
-				wrappedDescripters[4 + logicalUnitIdentifierLength + 3] = 0x1;
-				wrappedDescripters[4 + logicalUnitIdentifierLength + 4] = 0x20;
+				wrappedDescripters[4 + logicalUnitIdentifierLength + 3] = 0x2;
+				wrappedDescripters[4 + logicalUnitIdentifierLength + 4] = 0x1;
 				printf("Wrapped Key Descriptors: ");
-				for (int i = 0; i < 3 + logicalUnitIdentifierLength + 4; i++)
+				for (int i = 0; i < wrappedDescriptorsLength; i++)
 				{
 					printf("%X", (wrappedDescripters[i] & 0xFF) >> 4); // Upper 4 bits
 					printf("%X", wrappedDescripters[i] & 0x0F); // Lower 4 bits
@@ -962,10 +962,6 @@ main(
 
 		printf("AES-GCM algorithm index: 0x%02x\n\n", aesGcmAlgorithmIndex);
 
-		fprintf(stderr, "************************************************\n\n");
-		fprintf(stderr, "  Warning: Wrapped keys do not currently work.\n\n");
-		fprintf(stderr, "************************************************\n\n");
-
 		int kadTotalLength = 0;
 		PPLAIN_KEY_DESCRIPTOR kad = NULL;
 		if (!noKey) {
@@ -995,8 +991,7 @@ main(
 		keyHeader.KeyFormat = (UCHAR)keyFormat;
 		keyHeader.KADFormat = SPOUT_TAPE_KAD_FORMAT_ASCII;
 
-		int wrappedKeyTotalLength = 4 + wrappedDescriptorsLength + 2 + wrappedKeyLength - 2;
-		wrappedDescriptorsLength = 0;
+		int wrappedKeyTotalLength = 4 + wrappedDescriptorsLength + 2 + wrappedKeyLength + 2;
 		UCHAR* wrappedKey = calloc(wrappedKeyTotalLength, sizeof(UCHAR));
 		wrappedKey[0] = (keyType >> 8) & 0xFF;
 		wrappedKey[1] = keyType & 0xFF;
@@ -1103,7 +1098,10 @@ main(
 		plainKey->EncryptionMode = noKey ? 0x0 : 0x2;
 		plainKey->DecriptionMode = noKey ? 0x0 : 0x2;
 		plainKey->AlgorithmIndex = aesGcmAlgorithmIndex;
-		plainKey->KeyFormat = 0x00;
+		if (keyFormat >= 0)
+		{
+			plainKey->KeyFormat = (UCHAR)keyFormat;
+		}
 		plainKey->KADFormat = noKey ? 0x0 : SPOUT_TAPE_KAD_FORMAT_ASCII;
 		plainKey->KeyLength[1] = noKey ? 0x0 : 0x20;
 
@@ -1151,7 +1149,6 @@ main(
 			&returned,
 			FALSE);
 
-
 		printf("Cdb:\n\n");
 		PrintDataBuffer(sptwb_ex.spt.Cdb, sptwb_ex.spt.CdbLength);
 		printf("Buffer:\n\n");
@@ -1171,6 +1168,7 @@ main(
 		SecurityProtocolInSrbIn(fileHandle, &sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS, "Encryption Status");
 		SecurityProtocolInSrbIn(fileHandle, &sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS, "Next Block Encryption Status");
 		SecurityProtocolInSrbIn(fileHandle, &sptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_CERTIFICATE_DATA, "Certificate Data");
+		SecurityProtocolInSrbIn(fileHandle, &sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_MANAGEMENT_CAPABILITIES, "Data Encryption Management Capabilities");
 	}
 
 	if (pUnAlignedBuffer != NULL) {
@@ -1302,7 +1300,7 @@ ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength)
 	psptwb_ex->spt.DataOutTransferLength = 4 << 8;
 	psptwb_ex->spt.DataInTransferLength = 0;
 	psptwb_ex->spt.DataDirection = SCSI_IOCTL_DATA_OUT;
-	psptwb_ex->spt.TimeOutValue = 2;
+	psptwb_ex->spt.TimeOutValue = 20;
 	psptwb_ex->spt.StorAddressOffset =
 		offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX, StorAddress);
 	psptwb_ex->StorAddress.Type = STOR_ADDRESS_TYPE_BTL8;
