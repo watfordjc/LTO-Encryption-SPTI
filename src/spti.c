@@ -118,12 +118,12 @@ main(
 		returned = 0;
 
 	if ((argc < 2) || (argc > 3)) {
-		printf("Usage:  %s <port-name> [mode] [key]\n", argv[0]);
-		printf("Examples:\n");
-		printf("    spti Tape0         (open the tape class driver in SHARED READ mode)\n");
-		printf("    spti Tape0 D00D00  (Use RFC 3447 wrapped key 0xD00D00 on drive Tape0)\n");
-		printf("    spti Tape0 weak    (Use a hardcoded really weak test key on drive Tape0)\n");
-		printf("    spti Tape0 none    (Disable encryption and decryption on drive Tape0)\n");
+		fprintf(stderr, "Usage:  %s <port-name> [mode] [key]\n", argv[0]);
+		fprintf(stderr, "Examples:\n");
+		fprintf(stderr, "    spti Tape0         (open the tape class driver in SHARED READ mode)\n");
+		fprintf(stderr, "    spti Tape0 D00D00  (Use RFC 3447 wrapped key 0xD00D00 on drive Tape0)\n");
+		fprintf(stderr, "    spti Tape0 weak    (Use a hardcoded really weak test key on drive Tape0)\n");
+		fprintf(stderr, "    spti Tape0 none    (Disable encryption and decryption on drive Tape0)\n");
 		return;
 	}
 
@@ -181,7 +181,7 @@ main(
 
 	if (fileHandle == INVALID_HANDLE_VALUE) {
 		errorCode = GetLastError();
-		printf("Error opening %s. Error: %d\n",
+		fprintf(stderr, "Error opening %s. Error: %d\n",
 			string, errorCode);
 		PrintError(errorCode);
 		return;
@@ -194,7 +194,7 @@ main(
 	status = QueryPropertyForDevice(fileHandle, &alignmentMask, &srbType, &storageBusType);
 	if (!status) {
 		errorCode = GetLastError();
-		printf("Error getting device and/or adapter properties; "
+		fprintf(stderr, "Error getting device and/or adapter properties; "
 			"error was %d\n", errorCode);
 		PrintError(errorCode);
 		CloseHandle(fileHandle);
@@ -1306,10 +1306,10 @@ PrintError(ULONG ErrorCode)
 	);
 
 	if (count != 0) {
-		printf("%s\n", errorBuffer);
+		fprintf(stderr, "%s\n", errorBuffer);
 	}
 	else {
-		printf("Format message failed.  Error: %d\n", GetLastError());
+		fprintf(stderr, "Format message failed.  Error: %d\n", GetLastError());
 	}
 }
 
@@ -1480,7 +1480,7 @@ PrintStatusResults(
 	ULONG errorCode;
 
 	if (!status) {
-		printf("Error: %d  ",
+		fprintf(stderr, "Error: %d  ",
 			errorCode = GetLastError());
 		PrintError(errorCode);
 		return;
@@ -1523,7 +1523,7 @@ PrintStatusResultsEx(
 	ULONG errorCode;
 
 	if (!status) {
-		printf("Error: %d  ",
+		fprintf(stderr, "Error: %d  ",
 			errorCode = GetLastError());
 		PrintError(errorCode);
 		return;
@@ -1675,7 +1675,7 @@ QueryPropertyForDevice(
 	// deviceDescriptor is now allocated and full of data.
 
 	if (adapterDescriptor == NULL) {
-		printf("   ***** No adapter descriptor supported on the device *****\n");
+		fprintf(stderr, "   ***** No adapter descriptor supported on the device *****\n");
 	}
 	else {
 		PrintAdapterDescriptor(adapterDescriptor);
@@ -1684,7 +1684,7 @@ QueryPropertyForDevice(
 	}
 
 	if (deviceDescriptor == NULL) {
-		printf("   ***** No device descriptor supported on the device  *****\n");
+		fprintf(stderr, "   ***** No device descriptor supported on the device  *****\n");
 	}
 	else {
 		PrintDeviceDescriptor(deviceDescriptor);
