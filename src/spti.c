@@ -95,7 +95,13 @@ LPCSTR DeviceIdentifiers[] = {
 };
 #define NUMBER_OF_DEVICE_IDENTIFIERS (sizeof(DeviceIdentifiers)/sizeof(DeviceIdentifiers[0]))
 
-VOID
+/// <summary>
+/// Uses SCSI Pass Through Interface (SPTI) to communicate with an LTO tape drive
+/// </summary>
+/// <param name="argc">Number of command line parameters</param>
+/// <param name="argv">Command line parameters</param>
+/// <returns>-1 on some errors, usually 0</returns>
+int
 __cdecl
 main(
 	_In_ int argc,
@@ -118,7 +124,7 @@ main(
 		returned = 0;
 
 	if ((argc < 2) || (argc > 3)) {
-		fprintf(stderr, "Usage:  %s <port-name> [mode] [key]\n", argv[0]);
+		fprintf(stderr, "Usage:  %s <port-name> [key]\n", argv[0]);
 		fprintf(stderr, "Examples:\n");
 		fprintf(stderr, "    spti Tape0         (open the tape class driver in SHARED READ mode)\n");
 		fprintf(stderr, "    spti Tape0 D00D00  (Use RFC 3447 wrapped key 0xD00D00 on drive Tape0)\n");
@@ -205,34 +211,14 @@ main(
 
 	printf("Using %s%s.\n\n", BusTypeStrings[storageBusType], storageBusType == BusTypeSas ? "" : " - only tested with SAS");
 
-	//
-	// Send SCSI Pass Through
-	//
-
+	/*
+	* CDB: Security Protocol In, Security Protocol Information, Security Compliance page
+	*/
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		UCHAR cdbLength = GetCdbLength(SCSIOP_SECURITY_PROTOCOL_IN);
-		if (cdbLength == 0) {
-			CloseHandle(fileHandle);
-			return;
-		}
-		length = ResetSrbIn(&sptwb_ex, cdbLength);
-		sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
-		sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_INFO;
-		sptwb_ex.spt.Cdb[3] = SPIN_SECURITY_COMPLIANCE;
-		sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
-		sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
-		sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
-		sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
-
-		status = DeviceIoControl(fileHandle,
-			IOCTL_SCSI_PASS_THROUGH_EX,
-			&sptwb_ex,
-			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-			&sptwb_ex,
-			length,
-			&returned,
-			FALSE);
+		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_SECURITY_COMPLIANCE);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
 
 		printf("Parsing Security Compliance page...\n");
 		int pageLength = (sptwb_ex.ucDataBuf[0] << 24) & 0xFF000000 | (sptwb_ex.ucDataBuf[1] << 16) & 0xFF0000 | (sptwb_ex.ucDataBuf[2] << 8) & 0xFF00 | sptwb_ex.ucDataBuf[3] & 0xFF;
@@ -317,27 +303,23 @@ main(
 		}
 	}
 
-
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
 		printf("Using STORAGE_REQUEST_BLOCK.\n\n");
-		length = ResetSrbIn(&sptwb_ex, CDB12GENERIC_LENGTH);
-		sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
-		sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_INFO; // information
-		sptwb_ex.spt.Cdb[2] = SPIN_PROTOCOL_LIST; // supported protocol list
-		sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
-		sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
-		sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
-		sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
+	}
+	else
+	{
+		printf("Using SCSI_REQUEST_BLOCK - not currently supported by this program.\n\n");
+	}
 
-		status = DeviceIoControl(fileHandle,
-			IOCTL_SCSI_PASS_THROUGH_EX,
-			&sptwb_ex,
-			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-			&sptwb_ex,
-			length,
-			&returned,
-			FALSE);
+	/*
+	* CDB: Security Protocol In, Security Protocol Information, Supported Security Protocol List page
+	*/
+	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
+	{
+		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_PROTOCOL_LIST);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
 
 		//PrintStatusResultsEx(status, returned, &sptwb_ex, length);
 
@@ -406,8 +388,7 @@ main(
 			else
 			{
 				fprintf(stderr, "This device doesn't support Tape Data Encryption.\n");
-				CloseHandle(fileHandle);
-				return;
+				goto Cleanup;
 			}
 		}
 
@@ -418,25 +399,14 @@ main(
 		printf("Using SCSI_REQUEST_BLOCK - only tested with STORAGE_REQUEST_BLOCK.\n\n\n");
 	}
 
+	/*
+	* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Capabilities page
+	*/
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		length = ResetSrbIn(&sptwb_ex, CDB12GENERIC_LENGTH);
-		sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
-		sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_TAPE; // tape encryption
-		sptwb_ex.spt.Cdb[3] = SPIN_TAPE_ENCRYPTION_CAPABILITIES; // data encryption capabilities
-		sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
-		sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
-		sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
-		sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
-
-		status = DeviceIoControl(fileHandle,
-			IOCTL_SCSI_PASS_THROUGH_EX,
-			&sptwb_ex,
-			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-			&sptwb_ex,
-			length,
-			&returned,
-			FALSE);
+		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_CAPABILITIES);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
 
 		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
 		{
@@ -598,23 +568,16 @@ main(
 		//  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
 	}
 
+	/*
+	* CDB: Inquiry, Device Identifiers VPD page
+	*/
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		length = ResetSrbIn(&sptwb_ex, CDB6GENERIC_LENGTH);
-		sptwb_ex.spt.Cdb[0] = SCSIOP_INQUIRY;
+		length = ResetSrbIn(&sptwb_ex, SCSIOP_INQUIRY);
+		if (length == 0) { goto Cleanup; }
 		sptwb_ex.spt.Cdb[1] = CDB_INQUIRY_EVPD;
 		sptwb_ex.spt.Cdb[2] = VPD_DEVICE_IDENTIFIERS;
-		sptwb_ex.spt.Cdb[3] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
-		sptwb_ex.spt.Cdb[4] = SPTWB_DATA_LENGTH & 0xFF;
-
-		status = DeviceIoControl(fileHandle,
-			IOCTL_SCSI_PASS_THROUGH_EX,
-			&sptwb_ex,
-			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-			&sptwb_ex,
-			length,
-			&returned,
-			FALSE);
+		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
 
 		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
 		{
@@ -654,25 +617,14 @@ main(
 
 	}
 
+	/*
+	* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Supported Key Formats page
+	*/
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		length = ResetSrbIn(&sptwb_ex, CDB12GENERIC_LENGTH);
-		sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
-		sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_TAPE; // tape encryption
-		sptwb_ex.spt.Cdb[3] = SPIN_TAPE_SUPPORTED_KEY_FORMATS; // supported key formats page
-		sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
-		sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
-		sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
-		sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
-
-		status = DeviceIoControl(fileHandle,
-			IOCTL_SCSI_PASS_THROUGH_EX,
-			&sptwb_ex,
-			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-			&sptwb_ex,
-			length,
-			&returned,
-			FALSE);
+		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_SUPPORTED_KEY_FORMATS);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
 
 		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
 		{
@@ -717,25 +669,14 @@ main(
 		"This device %s RFC 3447 AES Key-Wrapping.\n\n", capRfc3447 ? "supports" : "doesn't support"
 	);
 
+	/*
+	* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Status page
+	*/
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		length = ResetSrbIn(&sptwb_ex, CDB12GENERIC_LENGTH);
-		sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
-		sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_TAPE; // tape encryption
-		sptwb_ex.spt.Cdb[3] = SPIN_TAPE_ENCRYPTION_STATUS; // supported key formats page
-		sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
-		sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
-		sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
-		sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
-
-		status = DeviceIoControl(fileHandle,
-			IOCTL_SCSI_PASS_THROUGH_EX,
-			&sptwb_ex,
-			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-			&sptwb_ex,
-			length,
-			&returned,
-			FALSE);
+		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
 
 		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
 		{
@@ -746,26 +687,16 @@ main(
 		//PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
 	}
 
-	// If the device supports AES key wrapping (RFC 3447), try to obtain the public key
+	/*
+	* If the device supports AES key wrapping (RFC 3447), try to obtain the public key
+	*
+	* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Device Server Key Wrapping Public Key page
+	*/
 	if (capRfc3447 && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		length = ResetSrbIn(&sptwb_ex, CDB12GENERIC_LENGTH);
-		sptwb_ex.spt.Cdb[0] = SCSIOP_SECURITY_PROTOCOL_IN;
-		sptwb_ex.spt.Cdb[1] = SECURITY_PROTOCOL_TAPE; // tape encryption
-		sptwb_ex.spt.Cdb[3] = SPIN_TAPE_WRAPPED_PUBKEY; // device server key wrapping public key page
-		sptwb_ex.spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
-		sptwb_ex.spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
-		sptwb_ex.spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
-		sptwb_ex.spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
-
-		status = DeviceIoControl(fileHandle,
-			IOCTL_SCSI_PASS_THROUGH_EX,
-			&sptwb_ex,
-			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-			&sptwb_ex,
-			length,
-			&returned,
-			FALSE);
+		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_WRAPPED_PUBKEY);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
 
 		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
 		{
@@ -807,14 +738,12 @@ main(
 			if (!keyValueConsistent)
 			{
 				fprintf(stderr, "Public Key type %s and key format 0x%08x are not consistent.\n", description, publicKeyFormat);
-				CloseHandle(fileHandle);
-				return;
+				goto Cleanup;
 			}
 			if (!keyLengthConsistent)
 			{
 				fprintf(stderr, "Public Key type %s and wrapped key length (%d bytes) are not consistent.\n", description, publicKeyLength);
-				CloseHandle(fileHandle);
-				return;
+				goto Cleanup;
 			}
 			printf("Public Key Type: %s\n", description);
 			UCHAR* publicKeyModulus = calloc(modulusLength, sizeof(UCHAR));
@@ -919,7 +848,11 @@ main(
 
 	}
 
-
+	/*
+	* Send a wrapped key to the drive if wrapped keys are supported and supplied key is in wrapped format
+	*
+	* CDB: Security Protocol Out, Set Data Encryption page, Key Format 0x02 (Wrapped)
+	*/
 	if (capRfc3447 && keyFormat == SPIN_TAPE_KEY_FORMAT_WRAPPED && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
 		int wrappedKeyLength = keyLength / 2;
@@ -928,8 +861,7 @@ main(
 		if (aesGcmAlgorithmIndex == -1)
 		{
 			fprintf(stderr, "AES-GCM algorithm index not found.\n\n");
-			CloseHandle(fileHandle);
-			return;
+			goto Cleanup;
 		}
 
 		printf("AES-GCM algorithm index: 0x%02x\n\n", aesGcmAlgorithmIndex);
@@ -1008,15 +940,7 @@ main(
 		printf("Buffer length: %d (0x%02x)\n\n", allocationLength, allocationLength);
 		printf("SRB length: %d (0x%02x)\n\n", length, length);
 
-
-		status = DeviceIoControl(fileHandle,
-			IOCTL_SCSI_PASS_THROUGH_EX,
-			&sptwb_ex,
-			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-			&sptwb_ex,
-			length,
-			&returned,
-			FALSE);
+		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
 
 		printf("Buffer:\n\n");
 		PrintDataBuffer((PUCHAR)&sptwb_ex.ucDataBuf, sptwb_ex.spt.DataOutTransferLength);
@@ -1030,14 +954,18 @@ main(
 
 	}
 
-
+	/*
+	* If command parameter for key is set to string "weak", set a hardcoded weak key
+	* If command parameter for key is set to string "none", remove keys from drive
+	*
+	* CDB: Security Protocol Out, Set Data Encryption page, Key Format 0x00 (Plain)
+	*/
 	if ((testKey || noKey) && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
 		if (aesGcmAlgorithmIndex == -1)
 		{
 			fprintf(stderr, "AES-GCM algorithm index not found.\n\n");
-			CloseHandle(fileHandle);
-			return;
+			goto Cleanup;
 		}
 
 		printf("AES-GCM algorithm index: 0x%02x\n\n", aesGcmAlgorithmIndex);
@@ -1112,14 +1040,7 @@ main(
 		printf("Buffer length: %d (0x%02x)\n\n", plainKeyTotalLength, plainKeyTotalLength);
 		printf("SRB length: %d (0x%02x)\n\n", length, length);
 
-		status = DeviceIoControl(fileHandle,
-			IOCTL_SCSI_PASS_THROUGH_EX,
-			&sptwb_ex,
-			sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
-			&sptwb_ex,
-			length,
-			&returned,
-			FALSE);
+		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
 
 		printf("Cdb:\n\n");
 		PrintDataBuffer(sptwb_ex.spt.Cdb, sptwb_ex.spt.CdbLength);
@@ -1134,15 +1055,34 @@ main(
 		PrintStatusResultsEx(status, returned, &sptwb_ex, returned);
 	}
 
-
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		SecurityProtocolInSrbIn(fileHandle, &sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS, "Encryption Status");
-		SecurityProtocolInSrbIn(fileHandle, &sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS, "Next Block Encryption Status");
-		SecurityProtocolInSrbIn(fileHandle, &sptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_CERTIFICATE_DATA, "Certificate Data");
-		SecurityProtocolInSrbIn(fileHandle, &sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_MANAGEMENT_CAPABILITIES, "Data Encryption Management Capabilities");
+		// CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Status page
+		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
+		ParseSimpleSrbIn(&sptwb_ex, status, length, returned, "Encryption Status");
+
+		// CDB: Security Protocol In, Tape Data Encryption Security Protocol, Next Block Encryption Status page
+		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
+		ParseSimpleSrbIn(&sptwb_ex, status, length, returned, "Next Block Encryption Status");
+
+		// CDB: Security Protocol In, Security Protocol Information, Certificate Data
+		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_CERTIFICATE_DATA);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
+		ParseSimpleSrbIn(&sptwb_ex, status, length, returned, "Certificate Data");
+
+		// CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Management Capabilities page
+		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_MANAGEMENT_CAPABILITIES);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
+		ParseSimpleSrbIn(&sptwb_ex, status, length, returned, "Data Encryption Management Capabilities");
 	}
 
+Cleanup:
 	if (pUnAlignedBuffer != NULL) {
 		free(pUnAlignedBuffer);
 	}
@@ -1153,49 +1093,63 @@ main(
 		free(wrappedDescripters);
 	}
 	CloseHandle(fileHandle);
+	if (length == 0) {
+		fprintf(stderr, "An SRB was not successfully created.");
+		return -1;
+	}
 }
 
-VOID
-SecurityProtocolInSrbIn(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR securityProtocol, UCHAR pageCode, CHAR* cdbDescription)
+/// <summary>
+/// Create a STORAGE_REQUEST_BLOCK for CDB OpCode Security Protocol In
+/// </summary>
+/// <param name="psptwb_ex">Pointer to a SCSI_PASS_THROUGH_WITH_BUFFERS_EX struct (wrapper of SCSI_PASS_THROUGH_EX)</param>
+/// <param name="securityProtocol">The value for Security Protocol field</param>
+/// <param name="pageCode">The value for the Security Protocol Specific field (parameter currently limited to 0x00 to 0xFF)</param>
+/// <returns>Length of the SRB in bytes</returns>
+ULONG
+CreateSecurityProtocolInSrb(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR securityProtocol, UCHAR pageCode)
 {
-	UCHAR cdbLength = GetCdbLength(securityProtocol);
-	if (cdbLength == 0)
-	{
-		return;
-	}
-	UCHAR multibyteParams[13] = { '\0' };
-	multibyteParams[1] = pageCode; // supported key formats page
-	multibyteParams[4] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
-	multibyteParams[5] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
-	multibyteParams[6] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
-	multibyteParams[7] = SPTWB_DATA_LENGTH & 0xFF;
+	ULONG length = ResetSrbIn(psptwb_ex, SCSIOP_SECURITY_PROTOCOL_IN);
+	if (length == 0) { return length; }
+	psptwb_ex->spt.Cdb[1] = securityProtocol;
+	psptwb_ex->spt.Cdb[2] = (pageCode << 8) & 0xFF00;
+	psptwb_ex->spt.Cdb[3] = pageCode & 0xFF;
 
-	SimpleSrbIn(fileHandle, psptwb_ex, SCSIOP_SECURITY_PROTOCOL_IN, securityProtocol, multibyteParams, cdbDescription);
+	return length;
 }
 
-VOID
-SimpleSrbIn(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR opCode, UCHAR params, UCHAR* multibyteParams, CHAR* cdbDescription)
+/// <summary>
+/// Send a STORAGE_REQUEST_BLOCK to a device
+/// </summary>
+/// <param name="fileHandle">An open handle to the device</param>
+/// <param name="psptwb_ex">Pointer to a SCSI_PASS_THROUGH_WITH_BUFFERS_EX struct (wrapper of SCSI_PASS_THROUGH_EX)</param>
+/// <param name="length">Length of the SRB in bytes</param>
+/// <param name="returned">A pointer to a ULONG for storing the length of returned data in bytes</param>
+/// <returns>0 on failure or pending, non-zero on success</returns>
+BOOL
+SendSrb(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG length, PULONG returned)
 {
-	ULONG returned = 0;
-	UCHAR cdbLength = GetCdbLength(opCode);
-	if (cdbLength == 0) {
-		return;
-	}
-	ULONG length = ResetSrbIn(psptwb_ex, cdbLength);
-	psptwb_ex->spt.Cdb[0] = opCode;
-	psptwb_ex->spt.Cdb[1] = params;
-	memcpy(psptwb_ex->spt.Cdb + 2, multibyteParams, cdbLength - 3);
-	psptwb_ex->spt.Cdb[cdbLength - 1] = '\0';
-
-	BOOL status = DeviceIoControl(fileHandle,
+	return DeviceIoControl(fileHandle,
 		IOCTL_SCSI_PASS_THROUGH_EX,
 		psptwb_ex,
 		sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX),
 		psptwb_ex,
 		length,
-		&returned,
+		returned,
 		FALSE);
+}
 
+/// <summary>
+/// Prints a hexdump of returned data (or error data) for an SRB (direction: in/read)
+/// </summary>
+/// <param name="psptwb_ex">Pointer to a SCSI_PASS_THROUGH_WITH_BUFFERS_EX struct (wrapper of SCSI_PASS_THROUGH_EX)</param>
+/// <param name="status">Status returned from DeviceIoControl</param>
+/// <param name="length">Length of the SRB in bytes</param>
+/// <param name="returned">Length of returned data in bytes</param>
+/// <param name="cdbDescription">A description string used as a title in the output</param>
+VOID
+ParseSimpleSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG status, ULONG length, DWORD returned, CHAR* cdbDescription)
+{
 	printf("%s:\n\n", cdbDescription);
 	PrintDataBuffer(psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
 
@@ -1206,6 +1160,11 @@ SimpleSrbIn(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCH
 	}
 }
 
+/// <summary>
+/// Convert a SCSI OpCode to CDB length in bytes (does not support variable length CDBs)
+/// </summary>
+/// <param name="opCode">SCSI OpCode</param>
+/// <returns>0 if not supported, otherwise length of CDB in bytes</returns>
 UCHAR
 GetCdbLength(UCHAR opCode)
 {
@@ -1228,9 +1187,18 @@ GetCdbLength(UCHAR opCode)
 	}
 }
 
-int
-ResetSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength)
+/// <summary>
+/// Create a STORAGE_REQUEST_BLOCK for a CDB OpCode (direction: in/read)
+/// </summary>
+/// <param name="psptwb_ex">Pointer to a SCSI_PASS_THROUGH_WITH_BUFFERS_EX struct (wrapper of SCSI_PASS_THROUGH_EX)</param>
+/// <param name="opCode">SCSI OpCode</param>
+/// <returns>Length of the SRB in bytes</returns>
+ULONG
+ResetSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR opCode)
 {
+	UCHAR cdbLength = GetCdbLength(opCode);
+	if (cdbLength == 0) { return cdbLength; }
+
 	ZeroMemory(psptwb_ex, sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
 	psptwb_ex->spt.Version = 0;
 	psptwb_ex->spt.Length = sizeof(SCSI_PASS_THROUGH_EX);
@@ -1255,11 +1223,34 @@ ResetSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength)
 	psptwb_ex->spt.DataOutBufferOffset = 0;
 	psptwb_ex->spt.DataInBufferOffset =
 		offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX, ucDataBuf);
+	switch (opCode)
+	{
+	case SCSIOP_INQUIRY:
+		psptwb_ex->spt.Cdb[0] = opCode;
+		psptwb_ex->spt.Cdb[3] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
+		psptwb_ex->spt.Cdb[4] = SPTWB_DATA_LENGTH & 0xFF;
+		break;
+	case SCSIOP_SECURITY_PROTOCOL_IN:
+		psptwb_ex->spt.Cdb[0] = opCode;
+		psptwb_ex->spt.Cdb[6] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
+		psptwb_ex->spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
+		psptwb_ex->spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
+		psptwb_ex->spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
+		break;
+	default:
+		break;
+	}
 	return offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX, ucDataBuf) +
 		psptwb_ex->spt.DataInTransferLength;
 }
 
-int
+/// <summary>
+/// Create a STORAGE_REQUEST_BLOCK for a CDB OpCode (direction: out/write)
+/// </summary>
+/// <param name="psptwb_ex">Pointer to a SCSI_PASS_THROUGH_WITH_BUFFERS_EX struct (wrapper of SCSI_PASS_THROUGH_EX)</param>
+/// <param name="opCode">SCSI OpCode</param>
+/// <returns>Length of the SRB in bytes</returns>
+ULONG
 ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength)
 {
 	ZeroMemory(psptwb_ex, sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
