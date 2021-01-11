@@ -321,8 +321,6 @@ main(
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
 
-		//PrintStatusResultsEx(status, returned, &sptwb_ex, length);
-
 		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
 		{
 			printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
@@ -335,50 +333,13 @@ main(
 			int listCount = data->SupportedSecurityListLength[0] << 8 | data->SupportedSecurityListLength[1];
 			for (int i = 0; i < listCount; i++)
 			{
-				char* securityProtocol = "";
-				switch (data->SupportedSecurityProtocol[i])
-				{
-				case SECURITY_PROTOCOL_INFO:
-					securityProtocol = "Security protocol information";
-					break;
-				case SECURITY_PROTOCOL_TCG1:
-				case SECURITY_PROTOCOL_TCG2:
-				case SECURITY_PROTOCOL_TCG3:
-				case SECURITY_PROTOCOL_TCG4:
-				case SECURITY_PROTOCOL_TCG5:
-				case SECURITY_PROTOCOL_TCG6:
-					securityProtocol = "TCG";
-					break;
-				case SECURITY_PROTOCOL_TAPE:
-					securityProtocol = "Tape Data Encryption (SSC-3)";
+				if (data->SupportedSecurityProtocol[i] == SECURITY_PROTOCOL_TAPE) {
 					capTapeEncryption = TRUE;
-					break;
-				case SECURITY_PROTOCOL_ADC3:
-					securityProtocol = "Data Encryption Configuration (ADC-3)";
-					break;
-				case SECURITY_PROCOCOL_SA_CREATION_CAPABILITIES:
-					securityProtocol = "SA Creation Capabilities (SPC-5)";
-					break;
-				case SECURITY_PROCOCOL_IKEV2_SCSI:
-					securityProtocol = "IKEv2-SCSI (SPC-5)";
-					break;
-				case SECURITY_PROCOCOL_UFS:
-					securityProtocol = "JEDEC Universal Flash Storage (UFS)";
-					break;
-				case SECURITY_PROCOCOL_SD_TRUSTEDFLASH:
-					securityProtocol = "SDcard TrustedFlash Security Systems Specification 1.1.3";
-					break;
-				case SECURITY_PROTOCOL_IEEE1667:
-					securityProtocol = "IEEE 1667";
-					break;
-				case SECURITY_PROCOCOL_ATA_PASSWORD:
-					securityProtocol = "ATA Device Server Password Security (SAT-3)";
-					break;
-				default:
-					securityProtocol = "Unknown";
-					break;
 				}
-				printf("Supported Security Protocol: 0x%02X (%s)\n", data->SupportedSecurityProtocol[i], securityProtocol);
+				printf("Supported Security Protocol: 0x%02X (%s)\n",
+					data->SupportedSecurityProtocol[i],
+					GetSecurityProtocolDescription(data->SupportedSecurityProtocol[i])
+				);
 			}
 			printf("\n");
 			if (capTapeEncryption)
@@ -391,12 +352,6 @@ main(
 				goto Cleanup;
 			}
 		}
-
-		//PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
-	}
-	else
-	{
-		printf("Using SCSI_REQUEST_BLOCK - only tested with STORAGE_REQUEST_BLOCK.\n\n\n");
 	}
 
 	/*
@@ -1279,6 +1234,46 @@ ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength)
 	psptwb_ex->spt.DataInBufferOffset = 0;
 	return offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX, ucDataBuf) +
 		psptwb_ex->spt.DataOutTransferLength;
+}
+
+/// <summary>
+/// Converts a SCSI Security Protocol integer to a string description
+/// </summary>
+/// <param name="securityProtocol">Unsigned byte assigned to a security protocol</param>
+/// <returns>English description of the security protocol</returns>
+CHAR*
+GetSecurityProtocolDescription(UCHAR securityProtocol)
+{
+	switch (securityProtocol)
+	{
+	case SECURITY_PROTOCOL_INFO:
+		return "Security protocol information";
+	case SECURITY_PROTOCOL_TCG1:
+	case SECURITY_PROTOCOL_TCG2:
+	case SECURITY_PROTOCOL_TCG3:
+	case SECURITY_PROTOCOL_TCG4:
+	case SECURITY_PROTOCOL_TCG5:
+	case SECURITY_PROTOCOL_TCG6:
+		return "TCG";
+	case SECURITY_PROTOCOL_TAPE:
+		return "Tape Data Encryption (SSC-3)";
+	case SECURITY_PROTOCOL_ADC3:
+		return "Data Encryption Configuration (ADC-3)";
+	case SECURITY_PROCOCOL_SA_CREATION_CAPABILITIES:
+		return "SA Creation Capabilities (SPC-5)";
+	case SECURITY_PROCOCOL_IKEV2_SCSI:
+		return "IKEv2-SCSI (SPC-5)";
+	case SECURITY_PROCOCOL_UFS:
+		return "JEDEC Universal Flash Storage (UFS)";
+	case SECURITY_PROCOCOL_SD_TRUSTEDFLASH:
+		return "SDcard TrustedFlash Security Systems Specification 1.1.3";
+	case SECURITY_PROTOCOL_IEEE1667:
+		return "IEEE 1667";
+	case SECURITY_PROCOCOL_ATA_PASSWORD:
+		return "ATA Device Server Password Security (SAT-3)";
+	default:
+		return "Unknown";
+	}
 }
 
 VOID

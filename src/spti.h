@@ -113,6 +113,9 @@ ResetSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR opCode);
 ULONG
 ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength);
 
+CHAR*
+GetSecurityProtocolDescription(UCHAR securityProtocol);
+
 VOID
 PrintError(ULONG);
 
