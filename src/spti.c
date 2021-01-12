@@ -162,15 +162,16 @@ main(
 	shareMode = FILE_SHARE_READ;
 	accessMode = GENERIC_WRITE | GENERIC_READ;
 	int logicalUnitIdentifierLength = 0;
-	UCHAR* logicalUnitIdentifier = NULL;
+	PUCHAR logicalUnitIdentifier = NULL;
+	PDATA_ENCRYPTION_CAPABILITIES encryptionCapabilities = NULL;
 	BOOL capRfc3447 = FALSE;
 	CHAR aesGcmAlgorithmIndex = -1;
 	int wrappedDescriptorsLength = 0;
-	UCHAR* wrappedDescripters = NULL;
+	PUCHAR wrappedDescripters = NULL;
 	int keyType = -1;
 	int keyFormat = -1;
 	int keyLength = 0;
-	UCHAR* key = NULL;
+	PUCHAR key = NULL;
 	BOOL testKey = FALSE;
 	BOOL noKey = FALSE;
 
@@ -182,7 +183,7 @@ main(
 			noKey = TRUE;
 		}
 		else {
-			key = (UCHAR*)argv[2];
+			key = (PUCHAR)argv[2];
 			keyLength = (int)strlen(argv[2]);
 			switch (keyLength)
 			{
@@ -396,7 +397,8 @@ main(
 		int pageCode = sptwb_ex.ucDataBuf[0] << 8 | sptwb_ex.ucDataBuf[1];
 		if (pageCode == SPIN_TAPE_ENCRYPTION_CAPABILITIES)
 		{
-			PDATA_ENCRYPTION_CAPABILITIES encryptionCapabilities = (PDATA_ENCRYPTION_CAPABILITIES)sptwb_ex.ucDataBuf;
+			encryptionCapabilities = calloc(1, sizeof(DATA_ENCRYPTION_CAPABILITIES));
+			memcpy(encryptionCapabilities, sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
 			printf("Parsing Data Encryption Capabilities page...\n");
 			int pageLength = encryptionCapabilities->PageLength[0] << 8 | encryptionCapabilities->PageLength[1];
 			printf("Page length: %d bytes\n", pageLength);
@@ -717,8 +719,8 @@ main(
 				goto Cleanup;
 			}
 			printf("* Public Key Type: %s\n", description);
-			UCHAR* publicKeyModulus = calloc(modulusLength, sizeof(UCHAR));
-			UCHAR* publicKeyExponent = calloc(exponentLength, sizeof(UCHAR));
+			PUCHAR publicKeyModulus = calloc(modulusLength, sizeof(UCHAR));
+			PUCHAR publicKeyExponent = calloc(exponentLength, sizeof(UCHAR));
 			BOOL leadingZeros = TRUE;
 			int modulusOffset = 0;
 			if (publicKeyModulus != NULL) {
@@ -867,7 +869,7 @@ main(
 		keyHeader.KADFormat = SPOUT_TAPE_KAD_FORMAT_ASCII;
 
 		int wrappedKeyTotalLength = 4 + wrappedDescriptorsLength + 2 + wrappedKeyLength + 2;
-		UCHAR* wrappedKey = calloc(wrappedKeyTotalLength, sizeof(UCHAR));
+		PUCHAR wrappedKey = calloc(wrappedKeyTotalLength, sizeof(UCHAR));
 		wrappedKey[0] = (keyType >> 8) & 0xFF;
 		wrappedKey[1] = keyType & 0xFF;
 		wrappedKey[2] = (wrappedDescriptorsLength >> 8) & 0xFF;
@@ -1054,6 +1056,9 @@ main(
 	}
 
 Cleanup:
+	if (encryptionCapabilities != NULL) {
+		free(encryptionCapabilities);
+	}
 	if (pUnAlignedBuffer != NULL) {
 		free(pUnAlignedBuffer);
 	}
@@ -1119,7 +1124,7 @@ SendSrb(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG l
 /// <param name="returned">Length of returned data in bytes</param>
 /// <param name="cdbDescription">A description string used as a title in the output</param>
 VOID
-ParseSimpleSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG status, ULONG length, DWORD returned, CHAR* cdbDescription)
+ParseSimpleSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG status, ULONG length, DWORD returned, PCHAR cdbDescription)
 {
 	printf("%s:\n\n", cdbDescription);
 	PrintDataBuffer(psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
@@ -1257,7 +1262,7 @@ ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength)
 /// </summary>
 /// <param name="securityProtocol">Unsigned byte assigned to a security protocol</param>
 /// <returns>English description of the security protocol</returns>
-CHAR*
+PCHAR
 GetSecurityProtocolDescription(UCHAR securityProtocol)
 {
 	switch (securityProtocol)

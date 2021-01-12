@@ -137,7 +137,7 @@ BOOL
 SendSrb(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG length, PULONG returned);
 
 VOID
-ParseSimpleSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG status, ULONG length, DWORD returned, CHAR* cdbDescription);
+ParseSimpleSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG status, ULONG length, DWORD returned, PCHAR cdbDescription);
 
 UCHAR
 GetCdbLength(UCHAR groupCode);
@@ -148,7 +148,7 @@ ResetSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR opCode);
 ULONG
 ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength);
 
-CHAR*
+PCHAR
 GetSecurityProtocolDescription(UCHAR securityProtocol);
 
 VOID
