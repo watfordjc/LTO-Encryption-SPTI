@@ -84,17 +84,6 @@ LPCSTR BusTypeStrings[] = {
 };
 #define NUMBER_OF_BUS_TYPE_STRINGS (sizeof(BusTypeStrings)/sizeof(BusTypeStrings[0]))
 
-LPCSTR DeviceIdentifiers[] = {
-	"Logical Unit Identifier",
-	"Port Name",
-	"Port Identifier",
-	"Target Port Group Identifier",
-	"Target Name (code set 1)",
-	"Target Name (code set 2)",
-	"Not Defined"
-};
-#define NUMBER_OF_DEVICE_IDENTIFIERS (sizeof(DeviceIdentifiers)/sizeof(DeviceIdentifiers[0]))
-
 /// <summary>
 /// Uses SCSI Pass Through Interface (SPTI) to communicate with an LTO tape drive
 /// </summary>
@@ -207,9 +196,18 @@ main(
 		return;
 	}
 
-	printf("Alignment mask: 0x%08x\n\n", alignmentMask);
+	printf("** Alignment mask: 0x%08x  **\n\n", alignmentMask);
 
-	printf("Using %s%s.\n\n", BusTypeStrings[storageBusType], storageBusType == BusTypeSas ? "" : " - only tested with SAS");
+	printf("** Using %s%s **\n\n", BusTypeStrings[storageBusType], storageBusType == BusTypeSas ? "" : " - only tested with SAS");
+
+	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
+	{
+		printf("** Using STORAGE_REQUEST_BLOCK. **\n\n");
+	}
+	else if (srbType == SRB_TYPE_SCSI_REQUEST_BLOCK)
+	{
+		printf("** Using SCSI_REQUEST_BLOCK - not currently supported by this program. **\n\n");
+	}
 
 	/*
 	* CDB: Security Protocol In, Security Protocol Information, Security Compliance page
@@ -236,7 +234,7 @@ main(
 				description = "Unknown";
 				break;
 			}
-			printf("Descriptor Type: 0x%04x (%s)\n", descriptorType, description);
+			printf("* Descriptor Type: 0x%04x (%s)\n", descriptorType, description);
 			currentDescriptorLength = (sptwb_ex.ucDataBuf[4 + i + 4] << 24) & 0xFF000000 | (sptwb_ex.ucDataBuf[4 + i + 5] << 16) & 0xFF0000 | (sptwb_ex.ucDataBuf[4 + i + 6] << 8) & 0xFF00 | sptwb_ex.ucDataBuf[4 + i + 7] & 0xFF;
 			if (descriptorType == 0x0001) {
 				UCHAR fipsRevision = sptwb_ex.ucDataBuf[4 + i + 8];
@@ -250,9 +248,9 @@ main(
 				default:
 					description = "Unknown";
 				}
-				printf("Revision: %s\n", description);
-				printf("Overall Security Level: %c\n", sptwb_ex.ucDataBuf[4 + i + 9]);
-				printf("Hardware Level: ");
+				printf("  * Revision: %s\n", description);
+				printf("  * Overall Security Level: %c\n", sptwb_ex.ucDataBuf[4 + i + 9]);
+				printf("  * Hardware Level: ");
 				char currentChar;
 				BOOL endOfLeadingZeroes = FALSE;
 				for (int j = 0; j < 128; j++)
@@ -272,7 +270,7 @@ main(
 					}
 				}
 				printf("\n");
-				printf("Software Level: ");
+				printf("  * Software Level: ");
 				endOfLeadingZeroes = FALSE;
 				for (int j = 0; j < 128; j++)
 				{
@@ -303,15 +301,6 @@ main(
 		}
 	}
 
-	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	{
-		printf("Using STORAGE_REQUEST_BLOCK.\n\n");
-	}
-	else
-	{
-		printf("Using SCSI_REQUEST_BLOCK - not currently supported by this program.\n\n");
-	}
-
 	/*
 	* CDB: Security Protocol In, Security Protocol Information, Supported Security Protocol List page
 	*/
@@ -328,6 +317,7 @@ main(
 		}
 		else
 		{
+			printf("Parsing Supported Security Protocol List page...\n");
 			PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA data = (void*)sptwb_ex.ucDataBuf;
 			BOOL capTapeEncryption = FALSE;
 			int listCount = data->SupportedSecurityListLength[0] << 8 | data->SupportedSecurityListLength[1];
@@ -336,7 +326,7 @@ main(
 				if (data->SupportedSecurityProtocol[i] == SECURITY_PROTOCOL_TAPE) {
 					capTapeEncryption = TRUE;
 				}
-				printf("Supported Security Protocol: 0x%02X (%s)\n",
+				printf("* Supported Security Protocol: 0x%02X (%s)\n",
 					data->SupportedSecurityProtocol[i],
 					GetSecurityProtocolDescription(data->SupportedSecurityProtocol[i])
 				);
@@ -344,11 +334,11 @@ main(
 			printf("\n");
 			if (capTapeEncryption)
 			{
-				printf("This device supports Tape Data Encryption.\n\n");
+				printf("** This device supports Tape Data Encryption. **\n\n");
 			}
 			else
 			{
-				fprintf(stderr, "This device doesn't support Tape Data Encryption.\n");
+				fprintf(stderr, "** This device doesn't support Tape Data Encryption. **\n");
 				goto Cleanup;
 			}
 		}
@@ -376,7 +366,7 @@ main(
 			int pageLength = sptwb_ex.ucDataBuf[2] << 8 | sptwb_ex.ucDataBuf[3];
 			printf("Page length: %d bytes\n", pageLength);
 			int capExtdecc = sptwb_ex.ucDataBuf[4] & 0b00001100;
-			printf("External Data Encryption Capable (EXTDECC): %s\n", capExtdecc ? "True" : "False");
+			printf("* External Data Encryption Capable (EXTDECC): %s\n", capExtdecc ? "True" : "False");
 			int capCfgP = sptwb_ex.ucDataBuf[4] & 0b00000011;
 			switch (capCfgP)
 			{
@@ -390,15 +380,15 @@ main(
 				description = "Unknown";
 				break;
 			}
-			printf("Configuration Prevented (CFG_P): %s\n", description);
+			printf("* Configuration Prevented (CFG_P): %s\n", description);
 			UCHAR algorithmIndex = sptwb_ex.ucDataBuf[20];
-			printf("Algorithm index: 0x%02X\n", algorithmIndex);
+			printf("* Algorithm index: 0x%02X\n", algorithmIndex);
 			int descriptorLength = sptwb_ex.ucDataBuf[22] << 8 | sptwb_ex.ucDataBuf[23];
-			printf("Descriptor Length: %d bytes\n", descriptorLength);
-			printf("Algorithm Valid For Mounted Volume (AVFMV): %s\n", ((sptwb_ex.ucDataBuf[24] & 0b10000000) >> 7) == 0b1 ? "True" : "False");
-			printf("Supplemental Decryption Key Capable (SDK_C): %s\n", ((sptwb_ex.ucDataBuf[24] & 0b01000000) >> 6) == 0b1 ? "True" : "False");
-			printf("Message Authentication Code Capable (MAC_C): %s\n", ((sptwb_ex.ucDataBuf[24] & 0b00100000) >> 5) == 0b1 ? "True" : "False");
-			printf("Distinguish Encrypted Logical Block Capable (DELB_C): %s\n", ((sptwb_ex.ucDataBuf[24] & 0b00010000) >> 4) == 0b1 ? "True" : "False");
+			printf("  * Descriptor Length: %d bytes\n", descriptorLength);
+			printf("  * Algorithm Valid For Mounted Volume (AVFMV): %s\n", ((sptwb_ex.ucDataBuf[24] & 0b10000000) >> 7) == 0b1 ? "True" : "False");
+			printf("  * Supplemental Decryption Key Capable (SDK_C): %s\n", ((sptwb_ex.ucDataBuf[24] & 0b01000000) >> 6) == 0b1 ? "True" : "False");
+			printf("  * Message Authentication Code Capable (MAC_C): %s\n", ((sptwb_ex.ucDataBuf[24] & 0b00100000) >> 5) == 0b1 ? "True" : "False");
+			printf("  * Distinguish Encrypted Logical Block Capable (DELB_C): %s\n", ((sptwb_ex.ucDataBuf[24] & 0b00010000) >> 4) == 0b1 ? "True" : "False");
 			int capDecrypt = (sptwb_ex.ucDataBuf[24] & 0b00001100) >> 2;
 			switch (capDecrypt)
 			{
@@ -415,7 +405,7 @@ main(
 				description = "Capable with External Control";
 				break;
 			}
-			printf("Decryption Capable (Decrypt_C): %s\n", description);
+			printf("  * Decryption Capable (Decrypt_C): %s\n", description);
 			int capEncrypt = sptwb_ex.ucDataBuf[24] & 0b00000011;
 			switch (capEncrypt)
 			{
@@ -432,7 +422,7 @@ main(
 				description = "Capable with External Control";
 				break;
 			}
-			printf("Encryption Capable (Encrypt_C): %s\n", description);
+			printf("  * Encryption Capable (Encrypt_C): %s\n", description);
 			int capAvfclp = (sptwb_ex.ucDataBuf[25] & 0b11000000) >> 6;
 			switch (capAvfclp)
 			{
@@ -449,18 +439,18 @@ main(
 				description = "Unknown";
 				break;
 			}
-			printf("Algorithm Valid For Current Logical Position (AVFCLP): %s\n", description);
-			printf("Nonce value descriptor capable (NONCE_C): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00110000) >> 4 == 0b11 ? "True" : "False");
-			printf("KAD Format Capable (KADF_C): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00001000) >> 3 == 0b1 ? "True" : "False");
-			printf("Volume Contains Encrypted Logical Blocks Capable (VCELB_C): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00000100) >> 2 == 0b1 ? "True" : "False");
-			printf("Unauthenticated KAD Fixed Length (UKADF): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00000010) >> 1 == 0b1 ? "Max UKAD Bytes" : "1 Byte to Max UKAD Bytes");
-			printf("Authenticated KAD Fixed Length (AKADF): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00000001) == 0b1 ? "Max AKAD Bytes" : "1 Byte to Max AKAD Bytes");
+			printf("  * Algorithm Valid For Current Logical Position (AVFCLP): %s\n", description);
+			printf("  * Nonce value descriptor capable (NONCE_C): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00110000) >> 4 == 0b11 ? "True" : "False");
+			printf("  * KAD Format Capable (KADF_C): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00001000) >> 3 == 0b1 ? "True" : "False");
+			printf("  * Volume Contains Encrypted Logical Blocks Capable (VCELB_C): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00000100) >> 2 == 0b1 ? "True" : "False");
+			printf("  * Unauthenticated KAD Fixed Length (UKADF): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00000010) >> 1 == 0b1 ? "Max UKAD Bytes" : "1 Byte to Max UKAD Bytes");
+			printf("  * Authenticated KAD Fixed Length (AKADF): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00000001) == 0b1 ? "Max AKAD Bytes" : "1 Byte to Max AKAD Bytes");
 			int maxUnauthKeyBytes = sptwb_ex.ucDataBuf[26] << 8 | sptwb_ex.ucDataBuf[27];
-			printf("Maximum Unauthenticated Key-Associated Data Bytes: %d\n", maxUnauthKeyBytes);
+			printf("  * Maximum Unauthenticated Key-Associated Data Bytes: %d\n", maxUnauthKeyBytes);
 			int maxAuthKeyBytes = sptwb_ex.ucDataBuf[28] << 8 | sptwb_ex.ucDataBuf[29];
-			printf("Maximum Authenticated Key-Associated Data Bytes: %d\n", maxAuthKeyBytes);
+			printf("  * Maximum Authenticated Key-Associated Data Bytes: %d\n", maxAuthKeyBytes);
 			int keySize = sptwb_ex.ucDataBuf[30] << 8 | sptwb_ex.ucDataBuf[31];
-			printf("Key Size: %d bytes (%d-bit)\n", keySize, keySize * 8);
+			printf("  * Key Size: %d bytes (%d-bit)\n", keySize, keySize * 8);
 			int capDkad = (sptwb_ex.ucDataBuf[32] & 0b11000000) >> 6;
 			switch (capDkad)
 			{
@@ -477,7 +467,7 @@ main(
 				description = "Capable";
 				break;
 			}
-			printf("Decryption KAD Capability: %s\n", description);
+			printf("  * Decryption KAD Capability: %s\n", description);
 			int capEemc = (sptwb_ex.ucDataBuf[32] & 0b00110000) >> 4;
 			switch (capEemc)
 			{
@@ -492,32 +482,32 @@ main(
 				description = "True";
 				break;
 			}
-			printf("External Encryption Mode Control Capable (EEMC_C): %s\n", description);
+			printf("  * External Encryption Mode Control Capable (EEMC_C): %s\n", description);
 			int capRdmc = (sptwb_ex.ucDataBuf[32] & 0b00001110) >> 1;
 			if (capRdmc == 0x4)
 			{
-				printf("Raw Decryption Mode Control (RDMC_C): Raw decryption not allowed by default\n");
+				printf("  * Raw Decryption Mode Control (RDMC_C): Raw decryption not allowed by default\n");
 			}
 			else
 			{
-				printf("Raw Decryption Mode Control (RDMC_C): 0x%02X\n", capRdmc);
+				printf("  * Raw Decryption Mode Control (RDMC_C): 0x%02X\n", capRdmc);
 			}
 			int capEarem = sptwb_ex.ucDataBuf[32] & 0b1;
-			printf("Encryption Algorithm Records Encryption Mode (EAREM): %s\n", capEarem == 1 ? "True" : "False");
+			printf("  * Encryption Algorithm Records Encryption Mode (EAREM): %s\n", capEarem == 1 ? "True" : "False");
 			int maxSupplementalKeyCount = sptwb_ex.ucDataBuf[34] << 8 | sptwb_ex.ucDataBuf[35];
-			printf("Maximum number of supplemental decryption keys: %d\n", maxSupplementalKeyCount);
+			printf("  * Maximum number of supplemental decryption keys: %d\n", maxSupplementalKeyCount);
 			long algorithmCode = sptwb_ex.ucDataBuf[40] << 24 | sptwb_ex.ucDataBuf[41] << 16 | sptwb_ex.ucDataBuf[42] << 8 | sptwb_ex.ucDataBuf[43];
 			if (algorithmCode == SPIN_TAPE_ALGORITHM_AESGCM)
 			{
-				printf("Algorithm: AES-GCM (AES%d-GCM)\n", keySize * 8);
+				printf("  * Algorithm: AES-GCM (AES%d-GCM)\n", keySize * 8);
 				aesGcmAlgorithmIndex = algorithmIndex;
 			}
 			else
 			{
-				printf("Unknown Algorithm: 0x%08X\n", algorithmCode);
+				printf("  * Unknown Algorithm: 0x%08X\n", algorithmCode);
 			}
 
-			printf("\n\n");
+			printf("\n");
 		}
 
 		//  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
@@ -543,31 +533,117 @@ main(
 		if (pageCode == VPD_DEVICE_IDENTIFIERS) {
 
 			printf("Parsing Device Identifiers page...\n");
-			printf("Peripheral Qualifier: 0x%01X\n", (sptwb_ex.ucDataBuf[0] & 0b11100000) >> 5);
-			printf("Peripheral Device Type: 0x%02X\n", sptwb_ex.ucDataBuf[0] & 0x1F);
 			int pageLength = sptwb_ex.ucDataBuf[3];
-			printf("Page Length: %d bytes (0x%02X)\n\n", pageLength, pageLength);
 			int identifierTotalLength = 0;
 			int currentIdentifier = 0;
+			PVPD_IDENTIFICATION_DESCRIPTOR identifier = NULL;
+			int identifierLength = 0;
+			char* description = NULL;
+			int identifierInt = 0;
 			for (int i = 4; i < pageLength; i += identifierTotalLength)
 			{
-				//printf("Protocol identifier: 0x%01X\n", (sptwb_ex.ucDataBuf[i] & 0xF0) >> 8);
-				//printf("Code Set: 0x%01X\n", sptwb_ex.ucDataBuf[i] & 0xF);
-				//printf("PIV: 0x%01X\n", (sptwb_ex.ucDataBuf[i + 1] & 0b10000000) >> 7);
-				//printf("Rsvd: 0x%01X\n", (sptwb_ex.ucDataBuf[i + 1] & 0b01000000) >> 6);
-				//printf("Association: 0x%01X\n", (sptwb_ex.ucDataBuf[i + 1] & 0b00110000) >> 4);
-				printf("Identifier Type: 0x%01X\n", sptwb_ex.ucDataBuf[i + 1] & 0xF);
-				printf("Device Identifier (%s):\n", currentIdentifier < NUMBER_OF_DEVICE_IDENTIFIERS ? DeviceIdentifiers[currentIdentifier] : DeviceIdentifiers[NUMBER_OF_DEVICE_IDENTIFIERS - 1]);
-				int identifierLength = sptwb_ex.ucDataBuf[i + 3];
+				identifierLength = sptwb_ex.ucDataBuf[i + 3];
+				identifierTotalLength = FIELD_OFFSET(VPD_IDENTIFICATION_DESCRIPTOR, Identifier[identifierLength]);
+				identifier = calloc(1, identifierTotalLength);
+				memcpy(identifier, sptwb_ex.ucDataBuf + i, identifierTotalLength);
+				switch (identifier->Association)
+				{
+				case VpdAssocDevice:
+					description = "Logical Unit Identifier";
+					break;
+				case VpdAssocPort:
+					description = "Port Identifier";
+					break;
+				case VpdAssocTarget:
+					description = "Target Device Identifier";
+					break;
+				default:
+					description = "Unknown Association";
+					break;
+				}
+				switch (identifier->IdentifierType)
+				{
+				case VpdIdentifierTypeVendorId:
+					printf("* Vendor ID (%s): ", description);
+					if (identifier->CodeSet == VpdCodeSetAscii) {
+						char* vendorId = calloc(1, (size_t)identifierLength + 1);
+						strncpy_s(vendorId, (size_t)identifierLength + 1, (char*)identifier->Identifier, identifierLength);
+						printf("%s\n", vendorId);
+						free(vendorId);
+					}
+					else {
+						PrintDataBuffer(identifier->Identifier, identifierLength);
+					}
+					break;
+				case VpdIdentifierTypeFCPHName:
+					printf("* IEEE WWN (%s): ", description);
+					if (identifier->CodeSet == VpdCodeSetBinary) {
+						for (int j = 0; j < identifierLength; j++)
+						{
+							if (j > 0) { printf(":"); }
+							printf("%X", (identifier->Identifier[j] & 0xFF) >> 4); // Upper 4 bits
+							printf("%X", identifier->Identifier[j] & 0x0F); // Lower 4 bits
+						}
+						printf("\n");
+					}
+					else {
+						printf("\n");
+						PrintDataBuffer(identifier->Identifier, identifierLength);
+					}
+					break;
+				case VpdIdentifierTypePortRelative:
+					if (identifier->CodeSet == VpdCodeSetBinary) {
+						identifierInt = identifier->Identifier[0] << 24 | identifier->Identifier[1] << 16 | identifier->Identifier[2] << 8 | identifier->Identifier[3];
+						printf("* Relative Port Identifier: %d\n", identifierInt);
+					}
+					break;
+				case VpdIdentifierTypeTargetPortGroup:
+					if (identifier->CodeSet == VpdCodeSetBinary) {
+						identifierInt = identifier->Identifier[0] << 24 | identifier->Identifier[1] << 16 | identifier->Identifier[2] << 8 | identifier->Identifier[3];
+						printf("* Target Port Group Identifier: %d\n", identifierInt);
+					}
+					break;
+				default:
+					printf("* Other identifier (%s):...\n", description);
+					PrintDataBuffer(identifier->Identifier, identifierLength);
+				}
+				if ((identifier->Reserved2 >> 1) != 0x0) {
+					if ((identifier->Association == VpdAssocPort || identifier->Association == VpdAssocTarget) && (identifier->Reserved2 >> 1) == 0x1) {
+						switch (identifier->Reserved) {
+						case 0x0:
+							description = "Fibre Channel";
+							break;
+						case 0x2:
+							description = "SSA";
+							break;
+						case 0x3:
+							description = "IEEE 1394";
+							break;
+						case 0x4:
+							description = "RDMA";
+							break;
+						case 0x5:
+							description = "iSCSI";
+							break;
+						case 0x6:
+							description = "Serial Attached SCSI (SAS)";
+							break;
+						default:
+							description = "Unknown protocol";
+							break;
+						}
+						printf("   via %s (0x%01X)\n", description, identifier->Reserved);
+					}
+				}
 				if (currentIdentifier == 0) {
 					logicalUnitIdentifierLength = identifierLength;
 					logicalUnitIdentifier = calloc(sizeof(UCHAR), identifierLength);
-					memcpy(logicalUnitIdentifier, sptwb_ex.ucDataBuf + i + 4, identifierLength);
+					memcpy(logicalUnitIdentifier, identifier->Identifier, identifierLength);
 				}
-				identifierTotalLength = 4 + identifierLength;
-				PrintDataBuffer(sptwb_ex.ucDataBuf + i + 4, identifierLength);
+				free(identifier);
 				currentIdentifier++;
 			}
+			printf("\n");
 		}
 
 	}
@@ -592,7 +668,6 @@ main(
 			char* description;
 			printf("Parsing Supported Key Formats page...\n");
 			int pageLength = sptwb_ex.ucDataBuf[2] << 8 | sptwb_ex.ucDataBuf[3];
-			printf("Page length: %d bytes\n\n", pageLength);
 
 			for (int i = 0; i < pageLength; i++)
 			{
@@ -610,10 +685,10 @@ main(
 					break;
 				}
 
-				printf("Supported Key Format: 0x%02X (%s)\n", sptwb_ex.ucDataBuf[4 + i], description);
+				printf("* Supported Key Format: 0x%02X (%s)\n", sptwb_ex.ucDataBuf[4 + i], description);
 			}
 
-			printf("\n\n");
+			printf("\n");
 		}
 
 		//  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
@@ -621,7 +696,7 @@ main(
 
 	fprintf(
 		capRfc3447 ? stdout : stderr,
-		"This device %s RFC 3447 AES Key-Wrapping.\n\n", capRfc3447 ? "supports" : "doesn't support"
+		"** This device %s RFC 3447 AES Key-Wrapping. **\n\n", capRfc3447 ? "supports" : "doesn't support"
 	);
 
 	/*
@@ -663,7 +738,7 @@ main(
 		{
 			printf("Parsing Device Server Key Wrapping Public Key page...\n");
 			int pageLength = sptwb_ex.ucDataBuf[2] << 8 | sptwb_ex.ucDataBuf[3];
-			printf("Page length: %d bytes\n\n", pageLength);
+			printf("Page length: %d bytes\n", pageLength);
 			long publicKeyType = sptwb_ex.ucDataBuf[4] << 24 | sptwb_ex.ucDataBuf[5] << 16 | sptwb_ex.ucDataBuf[6] << 8 | sptwb_ex.ucDataBuf[7];
 			long publicKeyFormat = sptwb_ex.ucDataBuf[8] << 24 | sptwb_ex.ucDataBuf[9] << 16 | sptwb_ex.ucDataBuf[10] << 8 | sptwb_ex.ucDataBuf[11];
 			int publicKeyLength = sptwb_ex.ucDataBuf[12] << 8 | sptwb_ex.ucDataBuf[13];
@@ -692,15 +767,15 @@ main(
 			}
 			if (!keyValueConsistent)
 			{
-				fprintf(stderr, "Public Key type %s and key format 0x%08x are not consistent.\n", description, publicKeyFormat);
+				fprintf(stderr, "\nPublic Key type %s and key format 0x%08x are not consistent.\n", description, publicKeyFormat);
 				goto Cleanup;
 			}
 			if (!keyLengthConsistent)
 			{
-				fprintf(stderr, "Public Key type %s and wrapped key length (%d bytes) are not consistent.\n", description, publicKeyLength);
+				fprintf(stderr, "\nPublic Key type %s and wrapped key length (%d bytes) are not consistent.\n", description, publicKeyLength);
 				goto Cleanup;
 			}
-			printf("Public Key Type: %s\n", description);
+			printf("* Public Key Type: %s\n", description);
 			UCHAR* publicKeyModulus = calloc(modulusLength, sizeof(UCHAR));
 			UCHAR* publicKeyExponent = calloc(exponentLength, sizeof(UCHAR));
 			BOOL leadingZeros = TRUE;
@@ -748,7 +823,7 @@ main(
 			if (modulusOffset == 0 && exponentOffset == (exponentLength - 3))
 			{
 				// ASN.1
-				printf("DER: 30820122"); // 30=SEQUENCE, 82=multibyte length (0x80) using 2 bytes (0x2), 0122=length
+				printf("  * DER: 30820122"); // 30=SEQUENCE, 82=multibyte length (0x80) using 2 bytes (0x2), 0122=length
 				// RSA Encryption (Public Key) - OID 1.2.840.113549.1.1.1
 				printf("300D"); // 30=SEQUENCE, 0D=length
 				printf("0609"); // 06=OID, 09=length
@@ -783,7 +858,7 @@ main(
 				wrappedDescripters[4 + logicalUnitIdentifierLength + 0] = 0x4;
 				wrappedDescripters[4 + logicalUnitIdentifierLength + 3] = 0x2;
 				wrappedDescripters[4 + logicalUnitIdentifierLength + 4] = 0x1;
-				printf("Wrapped Key Descriptors: ");
+				printf("* Wrapped Key Descriptors: ");
 				for (int i = 0; i < wrappedDescriptorsLength; i++)
 				{
 					printf("%X", (wrappedDescripters[i] & 0xFF) >> 4); // Upper 4 bits
@@ -793,7 +868,7 @@ main(
 			}
 			else
 			{
-				fprintf(stderr, "Only RSA-2048 public keys with a 256 byte modulus and 3 byte exponent are currently supported.\n");
+				fprintf(stderr, "\nOnly RSA-2048 public keys with a 256 byte modulus and 3 byte exponent are currently supported.\n");
 			}
 			free(publicKeyModulus);
 			free(publicKeyExponent);
