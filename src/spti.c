@@ -147,13 +147,14 @@ main(
 		errorCode = 0,
 		returned = 0;
 
-	if ((argc < 2) || (argc > 3)) {
-		fprintf(stderr, "Usage:  %s <port-name> [key]\n", argv[0]);
+	if ((argc < 2) || (argc > 4)) {
+		fprintf(stderr, "Usage:  %s <port-name> [key] [kad]\n", argv[0]);
 		fprintf(stderr, "Examples:\n");
-		fprintf(stderr, "    spti Tape0         (open the tape class driver in SHARED READ mode)\n");
-		fprintf(stderr, "    spti Tape0 D00D00  (Use RFC 3447 wrapped key 0xD00D00 on drive Tape0)\n");
-		fprintf(stderr, "    spti Tape0 weak    (Use a hardcoded really weak test key on drive Tape0)\n");
-		fprintf(stderr, "    spti Tape0 none    (Disable encryption and decryption on drive Tape0)\n");
+		fprintf(stderr, "    spti Tape0                    (open the tape class driver in SHARED READ mode)\n");
+		fprintf(stderr, "    spti Tape0 D00D00             (Use RFC 3447 wrapped key 0xD00D00 on drive Tape0)\n");
+		fprintf(stderr, "    spti Tape0 D00D00 BackupTape1 (Use RFC 3447 wrapped key 0xD00D00 and KAD BackupTape1 on drive Tape0)\n");
+		fprintf(stderr, "    spti Tape0 weak               (Use a hardcoded really weak test key on drive Tape0)\n");
+		fprintf(stderr, "    spti Tape0 none               (Disable encryption and decryption on drive Tape0)\n");
 		return;
 	}
 
@@ -174,8 +175,9 @@ main(
 	PUCHAR key = NULL;
 	BOOL testKey = FALSE;
 	BOOL noKey = FALSE;
+	PUCHAR keyAssociatedData = NULL;
 
-	if (argc == 3) {
+	if (argc > 2) {
 		if (strcmp(argv[2], "weak") == 0) {
 			testKey = TRUE;
 		}
@@ -200,6 +202,11 @@ main(
 				break;
 			}
 		}
+	}
+
+	if (argc > 3)
+	{
+		keyAssociatedData = (PUCHAR)argv[3];
 	}
 
 	fileHandle = CreateFile(string,
@@ -841,16 +848,21 @@ main(
 
 		int kadTotalLength = 0;
 		PPLAIN_KEY_DESCRIPTOR kad = NULL;
-		if (!noKey) {
-			char* kadName = "Test2";
-			int kadLength = (int)strlen(kadName);
+		if (!noKey && keyAssociatedData != NULL) {
+			int kadLength = (int)strlen((char*)keyAssociatedData);
+			int authKadMaxLength = encryptionCapabilities->AuthKadMaxLength[0] << 8 | encryptionCapabilities->AuthKadMaxLength[1];
+			if (encryptionCapabilities->AuthKadFixedLength || kadLength > authKadMaxLength)
+			{
+				fprintf(stderr, "Key-Associated Data (KAD) must currently be %d ASCII characters%s - other options are not implemented.\n", authKadMaxLength, encryptionCapabilities->AuthKadFixedLength ? "" : " or fewer");
+				goto Cleanup;
+			}
 			kadTotalLength = FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[kadLength]);
 			kad = malloc(kadTotalLength);
 			ZeroMemory(kad, sizeof(PLAIN_KEY_DESCRIPTOR));
 			kad->Type = SPOUT_TAPE_KAD_PLAIN_TYPE_AUTH; // TODO: Check length is less than *Maximum Authenticated Key-Associated Data Bytes*
 			kad->Length[0] = (kadLength & 0xFF00) >> 8;
 			kad->Length[1] = kadLength & 0xFF;
-			memcpy(kad->Descriptor, kadName, kadLength);
+			memcpy(kad->Descriptor, keyAssociatedData, kadLength);
 			printf("KAD Descriptor with length %d:\n\n", kadTotalLength);
 			PrintDataBuffer((PUCHAR)kad, kadTotalLength);
 		}
@@ -945,16 +957,21 @@ main(
 
 		int kadTotalLength = 0;
 		PPLAIN_KEY_DESCRIPTOR kad = NULL;
-		if (!noKey) {
-			char* kadName = "Test2";
-			int kadLength = (int)strlen(kadName);
+		if (!noKey && keyAssociatedData != NULL) {
+			int kadLength = (int)strlen((char*)keyAssociatedData);
+			int authKadMaxLength = encryptionCapabilities->AuthKadMaxLength[0] << 8 | encryptionCapabilities->AuthKadMaxLength[1];
+			if (encryptionCapabilities->AuthKadFixedLength || kadLength > authKadMaxLength)
+			{
+				fprintf(stderr, "Key-Associated Data (KAD) must currently be %d ASCII characters%s - other options are not implemented.\n", authKadMaxLength, encryptionCapabilities->AuthKadFixedLength ? "" : " or fewer");
+				goto Cleanup;
+			}
 			kadTotalLength = FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[kadLength]);
 			kad = malloc(kadTotalLength);
 			ZeroMemory(kad, sizeof(PLAIN_KEY_DESCRIPTOR));
 			kad->Type = SPOUT_TAPE_KAD_PLAIN_TYPE_AUTH; // TODO: Check length is less than *Maximum Authenticated Key-Associated Data Bytes*
 			kad->Length[0] = (kadLength & 0xFF00) >> 8;
 			kad->Length[1] = kadLength & 0xFF;
-			memcpy(kad->Descriptor, kadName, kadLength);
+			memcpy(kad->Descriptor, keyAssociatedData, kadLength);
 			printf("KAD Descriptor with length %d:\n\n", kadTotalLength);
 			PrintDataBuffer((PUCHAR)kad, kadTotalLength);
 		}
