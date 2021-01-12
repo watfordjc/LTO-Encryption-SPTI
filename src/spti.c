@@ -84,6 +84,41 @@ LPCSTR BusTypeStrings[] = {
 };
 #define NUMBER_OF_BUS_TYPE_STRINGS (sizeof(BusTypeStrings)/sizeof(BusTypeStrings[0]))
 
+LPCSTR CfgPCapableStrings[] = {
+	"Unknown",
+	"False",
+	"True",
+	"Unknown"
+};
+
+LPCSTR EncryptionCapableStrings[] = {
+	"No Capability",
+	"Software",
+	"Hardware",
+	"Capable with External Control"
+};
+
+LPCSTR AvfclpCapableStrings[] = {
+	"Not applicable or no tape loaded",
+	"Not valid at current logical position",
+	"Valid at current logical position",
+	"Unknown"
+};
+
+LPCSTR DkadCapableStrings[] = {
+	"Unspecified",
+	"Required",
+	"Not Allowed",
+	"Capable"
+};
+
+LPCSTR EemcCapableStrings[] = {
+	"Unspecified",
+	"False",
+	"True",
+	"Unspecified"
+};
+
 /// <summary>
 /// Uses SCSI Pass Through Interface (SPTI) to communicate with an LTO tape drive
 /// </summary>
@@ -361,142 +396,48 @@ main(
 		int pageCode = sptwb_ex.ucDataBuf[0] << 8 | sptwb_ex.ucDataBuf[1];
 		if (pageCode == SPIN_TAPE_ENCRYPTION_CAPABILITIES)
 		{
-			char* description;
+			PDATA_ENCRYPTION_CAPABILITIES encryptionCapabilities = (PDATA_ENCRYPTION_CAPABILITIES)sptwb_ex.ucDataBuf;
 			printf("Parsing Data Encryption Capabilities page...\n");
-			int pageLength = sptwb_ex.ucDataBuf[2] << 8 | sptwb_ex.ucDataBuf[3];
+			int pageLength = encryptionCapabilities->PageLength[0] << 8 | encryptionCapabilities->PageLength[1];
 			printf("Page length: %d bytes\n", pageLength);
-			int capExtdecc = sptwb_ex.ucDataBuf[4] & 0b00001100;
-			printf("* External Data Encryption Capable (EXTDECC): %s\n", capExtdecc ? "True" : "False");
-			int capCfgP = sptwb_ex.ucDataBuf[4] & 0b00000011;
-			switch (capCfgP)
-			{
-			case 0b01:
-				description = "False";
-				break;
-			case 0b10:
-				description = "True";
-				break;
-			default:
-				description = "Unknown";
-				break;
-			}
-			printf("* Configuration Prevented (CFG_P): %s\n", description);
-			UCHAR algorithmIndex = sptwb_ex.ucDataBuf[20];
+			printf("* External Data Encryption Capable (EXTDECC): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->ExternalDataEncryptionCapable == 0b10));
+			printf("* Configuration Prevented (CFG_P): %s\n", CfgPCapableStrings[encryptionCapabilities->ConfigurationPrevented]);
+			UCHAR algorithmIndex = encryptionCapabilities->AlgorithmIndex;
 			printf("* Algorithm index: 0x%02X\n", algorithmIndex);
-			int descriptorLength = sptwb_ex.ucDataBuf[22] << 8 | sptwb_ex.ucDataBuf[23];
+			int descriptorLength = encryptionCapabilities->DescriptorLength[0] << 8 | encryptionCapabilities->DescriptorLength[1];
 			printf("  * Descriptor Length: %d bytes\n", descriptorLength);
-			printf("  * Algorithm Valid For Mounted Volume (AVFMV): %s\n", ((sptwb_ex.ucDataBuf[24] & 0b10000000) >> 7) == 0b1 ? "True" : "False");
-			printf("  * Supplemental Decryption Key Capable (SDK_C): %s\n", ((sptwb_ex.ucDataBuf[24] & 0b01000000) >> 6) == 0b1 ? "True" : "False");
-			printf("  * Message Authentication Code Capable (MAC_C): %s\n", ((sptwb_ex.ucDataBuf[24] & 0b00100000) >> 5) == 0b1 ? "True" : "False");
-			printf("  * Distinguish Encrypted Logical Block Capable (DELB_C): %s\n", ((sptwb_ex.ucDataBuf[24] & 0b00010000) >> 4) == 0b1 ? "True" : "False");
-			int capDecrypt = (sptwb_ex.ucDataBuf[24] & 0b00001100) >> 2;
-			switch (capDecrypt)
-			{
-			case 0b00:
-				description = "No Capability";
-				break;
-			case 0b01:
-				description = "Software";
-				break;
-			case 0b10:
-				description = "Hardware";
-				break;
-			case 0b11:
-				description = "Capable with External Control";
-				break;
-			}
-			printf("  * Decryption Capable (Decrypt_C): %s\n", description);
-			int capEncrypt = sptwb_ex.ucDataBuf[24] & 0b00000011;
-			switch (capEncrypt)
-			{
-			case 0b00:
-				description = "No Capability";
-				break;
-			case 0b01:
-				description = "Software";
-				break;
-			case 0b10:
-				description = "Hardware";
-				break;
-			case 0b11:
-				description = "Capable with External Control";
-				break;
-			}
-			printf("  * Encryption Capable (Encrypt_C): %s\n", description);
-			int capAvfclp = (sptwb_ex.ucDataBuf[25] & 0b11000000) >> 6;
-			switch (capAvfclp)
-			{
-			case 0b00:
-				description = "Not applicable or no tape loaded";
-				break;
-			case 0b01:
-				description = "Not valid at current logical position";
-				break;
-			case 0b10:
-				description = "Valid at current logical position";
-				break;
-			default:
-				description = "Unknown";
-				break;
-			}
-			printf("  * Algorithm Valid For Current Logical Position (AVFCLP): %s\n", description);
-			printf("  * Nonce value descriptor capable (NONCE_C): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00110000) >> 4 == 0b11 ? "True" : "False");
-			printf("  * KAD Format Capable (KADF_C): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00001000) >> 3 == 0b1 ? "True" : "False");
-			printf("  * Volume Contains Encrypted Logical Blocks Capable (VCELB_C): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00000100) >> 2 == 0b1 ? "True" : "False");
-			printf("  * Unauthenticated KAD Fixed Length (UKADF): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00000010) >> 1 == 0b1 ? "Max UKAD Bytes" : "1 Byte to Max UKAD Bytes");
-			printf("  * Authenticated KAD Fixed Length (AKADF): %s\n", (sptwb_ex.ucDataBuf[25] & 0b00000001) == 0b1 ? "Max AKAD Bytes" : "1 Byte to Max AKAD Bytes");
-			int maxUnauthKeyBytes = sptwb_ex.ucDataBuf[26] << 8 | sptwb_ex.ucDataBuf[27];
+			printf("  * Algorithm Valid For Mounted Volume (AVFMV): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->AlgorithmValidForMountedVolume));
+			printf("  * Supplemental Decryption Key Capable (SDK_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->SupplementalDecryptionKeyCapable));
+			printf("  * Message Authentication Code Capable (MAC_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->MacKadCapable));
+			printf("  * Distinguish Encrypted Logical Block Capable (DELB_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->DistinguishEncryptedLogicalBlockCapable));
+			printf("  * Decryption Capable (Decrypt_C): %s\n", EncryptionCapableStrings[encryptionCapabilities->DecryptCapable]);
+			printf("  * Encryption Capable (Encrypt_C): %s\n", EncryptionCapableStrings[encryptionCapabilities->EncryptCapable]);
+			printf("  * Algorithm Valid For Current Logical Position (AVFCLP): %s\n", AvfclpCapableStrings[encryptionCapabilities->AlgorithmValidForCurrentLogicalPosition]);
+			printf("  * Nonce value descriptor capable (NONCE_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->NonceKadCapable == 0b11));
+			printf("  * KAD Format Capable (KADF_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->KadFormatCapable));
+			printf("  * Volume Contains Encrypted Logical Blocks Capable (VCELB_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->VolumeContainsEncryptedLogicalBlocksCapable));
+			printf("  * Unauthenticated KAD Fixed Length (UKADF): %s\n", (encryptionCapabilities->UnauthKadFixedLength ? "Max UKAD Bytes" : "1 Byte to Max UKAD Bytes"));
+			printf("  * Authenticated KAD Fixed Length (AKADF): %s\n", (encryptionCapabilities->AuthKadFixedLength ? "Max AKAD Bytes" : "1 Byte to Max AKAD Bytes"));
+			int maxUnauthKeyBytes = encryptionCapabilities->UnauthKadMaxLength[0] << 8 | encryptionCapabilities->UnauthKadMaxLength[1];
 			printf("  * Maximum Unauthenticated Key-Associated Data Bytes: %d\n", maxUnauthKeyBytes);
-			int maxAuthKeyBytes = sptwb_ex.ucDataBuf[28] << 8 | sptwb_ex.ucDataBuf[29];
+			int maxAuthKeyBytes = encryptionCapabilities->AuthKadMaxLength[0] << 8 | encryptionCapabilities->AuthKadMaxLength[1];
 			printf("  * Maximum Authenticated Key-Associated Data Bytes: %d\n", maxAuthKeyBytes);
-			int keySize = sptwb_ex.ucDataBuf[30] << 8 | sptwb_ex.ucDataBuf[31];
+			int keySize = encryptionCapabilities->KeySize[0] << 8 | encryptionCapabilities->KeySize[1];
 			printf("  * Key Size: %d bytes (%d-bit)\n", keySize, keySize * 8);
-			int capDkad = (sptwb_ex.ucDataBuf[32] & 0b11000000) >> 6;
-			switch (capDkad)
-			{
-			case 0b00:
-				description = "Unspecified";
-				break;
-			case 0b01:
-				description = "Required";
-				break;
-			case 0b10:
-				description = "Not Allowed";
-				break;
-			case 0b11:
-				description = "Capable";
-				break;
-			}
-			printf("  * Decryption KAD Capability: %s\n", description);
-			int capEemc = (sptwb_ex.ucDataBuf[32] & 0b00110000) >> 4;
-			switch (capEemc)
-			{
-			case 0b00:
-			case 0b11:
-				description = "Unspecified";
-				break;
-			case 0b01:
-				description = "False";
-				break;
-			case 0b10:
-				description = "True";
-				break;
-			}
-			printf("  * External Encryption Mode Control Capable (EEMC_C): %s\n", description);
-			int capRdmc = (sptwb_ex.ucDataBuf[32] & 0b00001110) >> 1;
-			if (capRdmc == 0x4)
+			printf("  * Decryption KAD Capability: %s\n", DkadCapableStrings[encryptionCapabilities->DecryptionKadCapable]);
+			printf("  * External Encryption Mode Control Capable (EEMC_C): %s\n", EemcCapableStrings[encryptionCapabilities->ExternalEncryptionModeControlCapable]);
+			if (encryptionCapabilities->RawDecryptionModeControlCapabilities == 0x4)
 			{
 				printf("  * Raw Decryption Mode Control (RDMC_C): Raw decryption not allowed by default\n");
 			}
 			else
 			{
-				printf("  * Raw Decryption Mode Control (RDMC_C): 0x%02X\n", capRdmc);
+				printf("  * Raw Decryption Mode Control (RDMC_C): 0x%02X\n", encryptionCapabilities->RawDecryptionModeControlCapabilities);
 			}
-			int capEarem = sptwb_ex.ucDataBuf[32] & 0b1;
-			printf("  * Encryption Algorithm Records Encryption Mode (EAREM): %s\n", capEarem == 1 ? "True" : "False");
-			int maxSupplementalKeyCount = sptwb_ex.ucDataBuf[34] << 8 | sptwb_ex.ucDataBuf[35];
+			printf("  * Encryption Algorithm Records Encryption Mode (EAREM): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->EncryptionAlgorithmRecordsEncryptionMode));
+			int maxSupplementalKeyCount = encryptionCapabilities->MaximumSupplementalDecryptionKeyCount[0] << 8 | encryptionCapabilities->MaximumSupplementalDecryptionKeyCount[1];
 			printf("  * Maximum number of supplemental decryption keys: %d\n", maxSupplementalKeyCount);
-			long algorithmCode = sptwb_ex.ucDataBuf[40] << 24 | sptwb_ex.ucDataBuf[41] << 16 | sptwb_ex.ucDataBuf[42] << 8 | sptwb_ex.ucDataBuf[43];
+			long algorithmCode = encryptionCapabilities->AlgorithmCode[0] << 24 | encryptionCapabilities->AlgorithmCode[1] << 16 | encryptionCapabilities->AlgorithmCode[2] << 8 | encryptionCapabilities->AlgorithmCode[3];
 			if (algorithmCode == SPIN_TAPE_ALGORITHM_AESGCM)
 			{
 				printf("  * Algorithm: AES-GCM (AES%d-GCM)\n", keySize * 8);
