@@ -968,7 +968,6 @@ main(
 			if (pageCode == SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS) {
 				ParseNextBlockEncryptionStatus((PNEXT_BLOCK_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, aesGcmAlgorithmIndex);
 			}
-			ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Next Block Encryption Status");
 		}
 
 		// CDB: Security Protocol In, Security Protocol Information, Certificate Data
@@ -1233,33 +1232,55 @@ ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY dev
 /// <param name="pNextBlockStatus">A pointer to a NEXT_BLOCK_ENCRYPTION_STATUS struct</param>
 /// <param name="aesGcmAlgorithmIndex">The drive's encryption algorithm index for AES256-GCM</param>
 VOID
-ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS pNextBlockStatus, CHAR aesGcmAlgorithmIndex)
+ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, CHAR aesGcmAlgorithmIndex)
 {
-	NEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus = *pNextBlockStatus;
 	// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
-	nextBlockStatus.PageCode = ntohs(nextBlockStatus.PageCode);
-	nextBlockStatus.PageLength = ntohs(nextBlockStatus.PageLength);
-	nextBlockStatus.BlockNumber = ntohll(nextBlockStatus.BlockNumber);
-	int kadListLength = nextBlockStatus.PageLength - 12;
+	nextBlockStatus->PageCode = ntohs(nextBlockStatus->PageCode);
+	nextBlockStatus->PageLength = ntohs(nextBlockStatus->PageLength);
+	nextBlockStatus->BlockNumber = ntohll(nextBlockStatus->BlockNumber);
+	int kadListLength = nextBlockStatus->PageLength - 12;
 	printf("Parsing Next Block Encryption Status page...\n");
-	printf("Page Length: %d bytes\n", nextBlockStatus.PageLength);
-	printf("* Block Number: %llu\n", nextBlockStatus.BlockNumber);
-	printf("* Compressed: %s\n", nextBlockStatus.CompressionStatus == 0x0 ? "Unable to determine" : "Unsupported value");
+	printf("Page Length: %d bytes\n", nextBlockStatus->PageLength);
+	printf("* Block Number: %llu\n", nextBlockStatus->BlockNumber);
+	printf("* Compressed: %s\n", nextBlockStatus->CompressionStatus == 0x0 ? "Unable to determine" : "Unsupported value");
 	printf("* Encryption Status: %s\n",
-		nextBlockStatus.EncryptionStatus < NUMBER_OF_NEXT_BLOCK_ENCRYPTION_STATUS_STRINGS
-		? NextBlockEncryptionStatusStrings[nextBlockStatus.EncryptionStatus]
+		nextBlockStatus->EncryptionStatus < NUMBER_OF_NEXT_BLOCK_ENCRYPTION_STATUS_STRINGS
+		? NextBlockEncryptionStatusStrings[nextBlockStatus->EncryptionStatus]
 		: NextBlockEncryptionStatusStrings[NUMBER_OF_NEXT_BLOCK_ENCRYPTION_STATUS_STRINGS - 1]
 	);
-	printf("* Encryption Mode External Status (EMES): %s\n", BOOLEAN_TO_STRING(nextBlockStatus.EncryptionModeExternalStatus));
-	printf("* Raw Decryption Mode Disabled Status (RDMDS): %s\n", BOOLEAN_TO_STRING(nextBlockStatus.RawDecryptionModeDisabledStatus));
-	printf("* Encryption Algorithm: %s (0x%02x)\n", nextBlockStatus.AlgorithmIndex == aesGcmAlgorithmIndex ? "AES256-GCM" : "Unknown", nextBlockStatus.AlgorithmIndex);
+	printf("* Encryption Mode External Status (EMES): %s\n", BOOLEAN_TO_STRING(nextBlockStatus->EncryptionModeExternalStatus));
+	printf("* Raw Decryption Mode Disabled Status (RDMDS): %s\n", BOOLEAN_TO_STRING(nextBlockStatus->RawDecryptionModeDisabledStatus));
+	printf("* Encryption Algorithm: %s (0x%02x)\n", nextBlockStatus->AlgorithmIndex == aesGcmAlgorithmIndex ? "AES256-GCM" : "Unknown", nextBlockStatus->AlgorithmIndex);
 	printf("* KAD Format: %s (0x%02X)\n",
-		nextBlockStatus.KADFormat < NUMBER_OF_KAD_FORMAT_STRINGS
-		? KadFormatStrings[nextBlockStatus.KADFormat]
+		nextBlockStatus->KADFormat < NUMBER_OF_KAD_FORMAT_STRINGS
+		? KadFormatStrings[nextBlockStatus->KADFormat]
 		: KadFormatStrings[NUMBER_OF_KAD_FORMAT_STRINGS - 1],
-		nextBlockStatus.KADFormat
+		nextBlockStatus->KADFormat
 	);
 	printf("* KAD List Length: 0x%02x (%d bytes)\n", kadListLength, kadListLength); // TODO: Parse KAD List
+	PPLAIN_KEY_DESCRIPTOR kad = NULL;
+	int currentKadTotalLength = 0;
+	for (int i = 0; i < kadListLength; i += currentKadTotalLength)
+	{
+		UINT16 currentKadLength = nextBlockStatus->KADList[i + 2] << 8 | nextBlockStatus->KADList[i + 3];
+		currentKadTotalLength = FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[currentKadLength]);
+		kad = calloc(currentKadTotalLength, 1);
+		if (kad != NULL)
+		{
+			memcpy(kad, nextBlockStatus->KADList + i, currentKadTotalLength);
+			printf("  * KAD Type: 0x%02x\n", kad->Type);
+			printf("    * KAD Length: %d\n", currentKadLength);
+			if (nextBlockStatus->KADFormat == SPOUT_TAPE_KAD_FORMAT_ASCII)
+			{
+				printf("    * KAD: %.*s\n", currentKadLength, kad->Descriptor);
+			}
+			else
+			{
+				fprintf(stderr, "Currently only able to display ASCII KADs.\n");
+			}
+			free(kad);
+		}
+	}
 	printf("\n");
 }
 
