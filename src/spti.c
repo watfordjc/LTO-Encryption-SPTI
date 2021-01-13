@@ -27,7 +27,7 @@ Revision History:
 
 #include <windows.h>
 #pragma comment(lib, "Ws2_32.lib")
-#include <winsock.h>
+#include <WinSock2.h>
 #include <devioctl.h>
 #include <ntdddisk.h>
 #include <ntddscsi.h>
@@ -120,6 +120,26 @@ LPCSTR EemcCapableStrings[] = {
 	"True",
 	"Unspecified"
 };
+
+LPCSTR KadFormatStrings[] = {
+	"Unspecified",
+	"Binary",
+	"ASCII",
+	"Unexpected value"
+};
+#define NUMBER_OF_KAD_FORMAT_STRINGS (sizeof(KadFormatStrings)/sizeof(KadFormatStrings[0]))
+
+LPCSTR NextBlockEncryptionStatusStrings[] = {
+	"Cannot be determined.",
+	"Cannot be determined at this time.",
+	"Not a logical block.",
+	"Not encrypted.",
+	"Encrypted, unsupported encryption algorithm.",
+	"Encrypted, supported encryption algorithm, can decrypt.",
+	"Encrypted, supported encryption algorithm, cannot decrypt.",
+	"Unexpected value"
+};
+#define NUMBER_OF_NEXT_BLOCK_ENCRYPTION_STATUS_STRINGS (sizeof(NextBlockEncryptionStatusStrings)/sizeof(NextBlockEncryptionStatusStrings[0]))
 
 /// <summary>
 /// Uses SCSI Pass Through Interface (SPTI) to communicate with an LTO tape drive
@@ -406,8 +426,10 @@ main(
 		int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 		if (pageCode == SPIN_TAPE_ENCRYPTION_CAPABILITIES)
 		{
+			// Copy Data Encryption Capabilities page to a new struct
 			encryptionCapabilities = calloc(1, sizeof(DATA_ENCRYPTION_CAPABILITIES));
 			memcpy(encryptionCapabilities, psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
+			// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
 			encryptionCapabilities->PageCode = ntohs(encryptionCapabilities->PageCode);
 			encryptionCapabilities->PageLength = ntohs(encryptionCapabilities->PageLength);
 			encryptionCapabilities->DescriptorLength = ntohs(encryptionCapabilities->DescriptorLength);
@@ -1057,7 +1079,19 @@ main(
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-		ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Next Block Encryption Status");
+		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
+		{
+			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
+			PrintStatusResultsEx(status, returned, psptwb_ex, length);
+		}
+		else
+		{
+			int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
+			if (pageCode == SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS) {
+				ParseNextBlockEncryptionStatus((PNEXT_BLOCK_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, aesGcmAlgorithmIndex);
+			}
+			ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Next Block Encryption Status");
+		}
 
 		// CDB: Security Protocol In, Security Protocol Information, Certificate Data
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_CERTIFICATE_DATA);
@@ -1154,6 +1188,42 @@ ParseSimpleSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG status, ULO
 		printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
 		PrintStatusResultsEx(status, returned, psptwb_ex, length);
 	}
+}
+
+/// <summary>
+/// Parse a pointer to a NEXT_BLOCK_ENCRYPTION_STATUS struct
+/// </summary>
+/// <param name="pNextBlockStatus">A pointer to a NEXT_BLOCK_ENCRYPTION_STATUS struct</param>
+/// <param name="aesGcmAlgorithmIndex">The drive's encryption algorithm index for AES256-GCM</param>
+VOID
+ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS pNextBlockStatus, CHAR aesGcmAlgorithmIndex)
+{
+	NEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus = *pNextBlockStatus;
+	// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+	nextBlockStatus.PageCode = ntohs(nextBlockStatus.PageCode);
+	nextBlockStatus.PageLength = ntohs(nextBlockStatus.PageLength);
+	nextBlockStatus.BlockNumber = ntohll(nextBlockStatus.BlockNumber);
+	int kadListLength = nextBlockStatus.PageLength - 12;
+	printf("Parsing Next Block Encryption Status page...\n");
+	printf("Page Length: %d bytes\n", nextBlockStatus.PageLength);
+	printf("* Block Number: %llu\n", nextBlockStatus.BlockNumber);
+	printf("* Compressed: %s\n", nextBlockStatus.CompressionStatus == 0x0 ? "Unable to determine" : "Unsupported value");
+	printf("* Encryption Status: %s\n",
+		nextBlockStatus.EncryptionStatus < NUMBER_OF_NEXT_BLOCK_ENCRYPTION_STATUS_STRINGS
+		? NextBlockEncryptionStatusStrings[nextBlockStatus.EncryptionStatus]
+		: NextBlockEncryptionStatusStrings[NUMBER_OF_NEXT_BLOCK_ENCRYPTION_STATUS_STRINGS - 1]
+	);
+	printf("* Encryption Mode External Status (EMES): %s\n", BOOLEAN_TO_STRING(nextBlockStatus.EncryptionModeExternalStatus));
+	printf("* Raw Decryption Mode Disabled Status (RDMDS): %s\n", BOOLEAN_TO_STRING(nextBlockStatus.RawDecryptionModeDisabledStatus));
+	printf("* Encryption Algorithm: %s (0x%02x)\n", nextBlockStatus.AlgorithmIndex == aesGcmAlgorithmIndex ? "AES256-GCM" : "Unknown", nextBlockStatus.AlgorithmIndex);
+	printf("* KAD Format: %s (0x%02X)\n",
+		nextBlockStatus.KADFormat < NUMBER_OF_KAD_FORMAT_STRINGS
+		? KadFormatStrings[nextBlockStatus.KADFormat]
+		: KadFormatStrings[NUMBER_OF_KAD_FORMAT_STRINGS - 1],
+		nextBlockStatus.KADFormat
+	);
+	printf("* KAD List Length: 0x%02x (%d bytes)\n", kadListLength, kadListLength); // TODO: Parse KAD List
+	printf("\n");
 }
 
 /// <summary>

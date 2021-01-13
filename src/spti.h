@@ -45,37 +45,56 @@ typedef struct _SCSI_PASS_THROUGH_WITH_BUFFERS_EX {
 typedef struct _DATA_ENCRYPTION_CAPABILITIES {
     UINT16 PageCode; // Network Byte Order
     UINT16 PageLength; // Network Byte Order
-    UCHAR ConfigurationPrevented : 2;
+    UCHAR ConfigurationPrevented : 2; // LSb of [4]
     UCHAR ExternalDataEncryptionCapable : 2;
-    UCHAR Reserved1 : 4;
+    UCHAR Reserved1 : 4; // MSb of [4]
     UCHAR Reserved2[15];
     UCHAR AlgorithmIndex;
     UCHAR Reserved3;
     UINT16 DescriptorLength; // Network Byte Order
-    UCHAR EncryptCapable : 2;
+    UCHAR EncryptCapable : 2; // LSb of [24]
     UCHAR DecryptCapable : 2;
     UCHAR DistinguishEncryptedLogicalBlockCapable : 1;
     UCHAR MacKadCapable : 1;
     UCHAR SupplementalDecryptionKeyCapable : 1;
-    UCHAR AlgorithmValidForMountedVolume : 1;
-    UCHAR AuthKadFixedLength : 1;
+    UCHAR AlgorithmValidForMountedVolume : 1; // MSb of [24]
+    UCHAR AuthKadFixedLength : 1; // LSb of [25]
     UCHAR UnauthKadFixedLength : 1;
     UCHAR VolumeContainsEncryptedLogicalBlocksCapable : 1;
     UCHAR KadFormatCapable : 1;
     UCHAR NonceKadCapable : 2;
-    UCHAR AlgorithmValidForCurrentLogicalPosition : 2;
+    UCHAR AlgorithmValidForCurrentLogicalPosition : 2; // MSb of [25]
     UINT16 UnauthKadMaxLength; // Network Byte Order
     UINT16 AuthKadMaxLength; // Network Byte Order
     UINT16 KeySize; // Network Byte Order
-    UCHAR EncryptionAlgorithmRecordsEncryptionMode : 1;
+    UCHAR EncryptionAlgorithmRecordsEncryptionMode : 1; // LSb of [32]
     UCHAR RawDecryptionModeControlCapabilities : 3;
     UCHAR ExternalEncryptionModeControlCapable : 2;
-    UCHAR DecryptionKadCapable : 2;
+    UCHAR DecryptionKadCapable : 2; // LSb of [32]
     UCHAR Reserved4;
     UINT16 MaximumSupplementalDecryptionKeyCount; // Network Byte Order
     UCHAR Reserved5[4];
     UINT32 AlgorithmCode; // Network Byte Order
 } DATA_ENCRYPTION_CAPABILITIES, *PDATA_ENCRYPTION_CAPABILITIES;
+#pragma pack(pop)
+
+#pragma pack(push)
+#pragma pack(1)
+typedef struct _NEXT_BLOCK_ENCRYPTION_STATUS {
+    UINT16 PageCode; // Network Byte Order
+    UINT16 PageLength; // Network Byte Order
+    UINT64 BlockNumber; // Network Byte Order
+    UCHAR EncryptionStatus : 4; // LSb of [12]
+    UCHAR CompressionStatus : 4; // MSb of [12]
+    UCHAR AlgorithmIndex;
+    UCHAR RawDecryptionModeDisabledStatus : 1; // LSb of [14]
+    UCHAR EncryptionModeExternalStatus : 1;
+    UCHAR Reserved1 : 6; // MSb of [14]
+    UCHAR KADFormat;
+#if !defined(__midl)
+    UCHAR KADList[0];
+#endif
+} NEXT_BLOCK_ENCRYPTION_STATUS, *PNEXT_BLOCK_ENCRYPTION_STATUS;
 #pragma pack(pop)
 
 typedef struct _KEY_HEADER {
@@ -141,6 +160,9 @@ SendSrb(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG l
 
 VOID
 ParseSimpleSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG status, ULONG length, DWORD returned, PCHAR cdbDescription);
+
+VOID
+ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS pNextBlockStatus, CHAR aesGcmAlgorithmIndex);
 
 UCHAR
 GetCdbLength(UCHAR groupCode);
