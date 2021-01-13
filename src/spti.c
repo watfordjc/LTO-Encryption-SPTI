@@ -26,6 +26,8 @@ Revision History:
 --*/
 
 #include <windows.h>
+#pragma comment(lib, "Ws2_32.lib")
+#include <winsock.h>
 #include <devioctl.h>
 #include <ntdddisk.h>
 #include <ntddscsi.h>
@@ -140,7 +142,7 @@ main(
 	UCHAR srbType = SRB_TYPE_SCSI_REQUEST_BLOCK; // default == SRB_TYPE_SCSI_REQUEST_BLOCK
 	STORAGE_BUS_TYPE storageBusType = BusTypeUnknown;
 	PUCHAR pUnAlignedBuffer = NULL;
-	SCSI_PASS_THROUGH_WITH_BUFFERS_EX sptwb_ex;
+	PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex = calloc(1, sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
 	CHAR string[NAME_COUNT];
 
 	ULONG length = 0,
@@ -257,16 +259,16 @@ main(
 	*/
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_SECURITY_COMPLIANCE);
+		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_SECURITY_COMPLIANCE);
 		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
 		printf("Parsing Security Compliance page...\n");
-		int pageLength = (sptwb_ex.ucDataBuf[0] << 24) & 0xFF000000 | (sptwb_ex.ucDataBuf[1] << 16) & 0xFF0000 | (sptwb_ex.ucDataBuf[2] << 8) & 0xFF00 | sptwb_ex.ucDataBuf[3] & 0xFF;
+		int pageLength = (psptwb_ex->ucDataBuf[0] << 24) & 0xFF000000 | (psptwb_ex->ucDataBuf[1] << 16) & 0xFF0000 | (psptwb_ex->ucDataBuf[2] << 8) & 0xFF00 | psptwb_ex->ucDataBuf[3] & 0xFF;
 		int currentDescriptorLength = 0;
 		for (int i = 0; i < pageLength; i += currentDescriptorLength)
 		{
-			int descriptorType = (sptwb_ex.ucDataBuf[4 + i + 0] << 8) & 0xFF00 | sptwb_ex.ucDataBuf[4 + i + 1] & 0xFF;
+			int descriptorType = (psptwb_ex->ucDataBuf[4 + i + 0] << 8) & 0xFF00 | psptwb_ex->ucDataBuf[4 + i + 1] & 0xFF;
 			char* description;
 			switch (descriptorType)
 			{
@@ -278,9 +280,9 @@ main(
 				break;
 			}
 			printf("* Descriptor Type: 0x%04x (%s)\n", descriptorType, description);
-			currentDescriptorLength = (sptwb_ex.ucDataBuf[4 + i + 4] << 24) & 0xFF000000 | (sptwb_ex.ucDataBuf[4 + i + 5] << 16) & 0xFF0000 | (sptwb_ex.ucDataBuf[4 + i + 6] << 8) & 0xFF00 | sptwb_ex.ucDataBuf[4 + i + 7] & 0xFF;
+			currentDescriptorLength = (psptwb_ex->ucDataBuf[4 + i + 4] << 24) & 0xFF000000 | (psptwb_ex->ucDataBuf[4 + i + 5] << 16) & 0xFF0000 | (psptwb_ex->ucDataBuf[4 + i + 6] << 8) & 0xFF00 | psptwb_ex->ucDataBuf[4 + i + 7] & 0xFF;
 			if (descriptorType == 0x0001) {
-				UCHAR fipsRevision = sptwb_ex.ucDataBuf[4 + i + 8];
+				UCHAR fipsRevision = psptwb_ex->ucDataBuf[4 + i + 8];
 				switch (fipsRevision) {
 				case 0x32:
 					description = "FIPS 140-2";
@@ -292,13 +294,13 @@ main(
 					description = "Unknown";
 				}
 				printf("  * Revision: %s\n", description);
-				printf("  * Overall Security Level: %c\n", sptwb_ex.ucDataBuf[4 + i + 9]);
+				printf("  * Overall Security Level: %c\n", psptwb_ex->ucDataBuf[4 + i + 9]);
 				printf("  * Hardware Level: ");
 				char currentChar;
 				BOOL endOfLeadingZeroes = FALSE;
 				for (int j = 0; j < 128; j++)
 				{
-					currentChar = sptwb_ex.ucDataBuf[4 + i + 10 + j];
+					currentChar = psptwb_ex->ucDataBuf[4 + i + 10 + j];
 					if (currentChar == 0 && !endOfLeadingZeroes) {
 						continue;
 					}
@@ -317,7 +319,7 @@ main(
 				endOfLeadingZeroes = FALSE;
 				for (int j = 0; j < 128; j++)
 				{
-					currentChar = sptwb_ex.ucDataBuf[4 + i + 138 + j];
+					currentChar = psptwb_ex->ucDataBuf[4 + i + 138 + j];
 					if (currentChar == 0 && !endOfLeadingZeroes) {
 						continue;
 					}
@@ -337,10 +339,10 @@ main(
 		}
 		printf("\n");
 
-		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
 		{
-			printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, &sptwb_ex, length);
+			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
+			PrintStatusResultsEx(status, returned, psptwb_ex, length);
 		}
 	}
 
@@ -349,19 +351,19 @@ main(
 	*/
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_PROTOCOL_LIST);
+		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_PROTOCOL_LIST);
 		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
 		{
-			printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, &sptwb_ex, length);
+			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
+			PrintStatusResultsEx(status, returned, psptwb_ex, length);
 		}
 		else
 		{
 			printf("Parsing Supported Security Protocol List page...\n");
-			PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA data = (void*)sptwb_ex.ucDataBuf;
+			PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA data = (PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA)psptwb_ex->ucDataBuf;
 			BOOL capTapeEncryption = FALSE;
 			int listCount = data->SupportedSecurityListLength[0] << 8 | data->SupportedSecurityListLength[1];
 			for (int i = 0; i < listCount; i++)
@@ -392,29 +394,34 @@ main(
 	*/
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_CAPABILITIES);
+		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_CAPABILITIES);
 		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
 		{
-			printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, &sptwb_ex, length);
+			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
+			PrintStatusResultsEx(status, returned, psptwb_ex, length);
 		}
-		int pageCode = sptwb_ex.ucDataBuf[0] << 8 | sptwb_ex.ucDataBuf[1];
+		int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 		if (pageCode == SPIN_TAPE_ENCRYPTION_CAPABILITIES)
 		{
 			encryptionCapabilities = calloc(1, sizeof(DATA_ENCRYPTION_CAPABILITIES));
-			memcpy(encryptionCapabilities, sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
+			memcpy(encryptionCapabilities, psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
+			encryptionCapabilities->PageCode = ntohs(encryptionCapabilities->PageCode);
+			encryptionCapabilities->PageLength = ntohs(encryptionCapabilities->PageLength);
+			encryptionCapabilities->DescriptorLength = ntohs(encryptionCapabilities->DescriptorLength);
+			encryptionCapabilities->UnauthKadMaxLength = ntohs(encryptionCapabilities->UnauthKadMaxLength);
+			encryptionCapabilities->AuthKadMaxLength = ntohs(encryptionCapabilities->AuthKadMaxLength);
+			encryptionCapabilities->KeySize = ntohs(encryptionCapabilities->KeySize);
+			encryptionCapabilities->MaximumSupplementalDecryptionKeyCount = ntohs(encryptionCapabilities->MaximumSupplementalDecryptionKeyCount);
+			encryptionCapabilities->AlgorithmCode = ntohl(encryptionCapabilities->AlgorithmCode);
 			printf("Parsing Data Encryption Capabilities page...\n");
-			int pageLength = encryptionCapabilities->PageLength[0] << 8 | encryptionCapabilities->PageLength[1];
-			printf("Page length: %d bytes\n", pageLength);
+			printf("Page length: %d bytes\n", encryptionCapabilities->PageLength);
 			printf("* External Data Encryption Capable (EXTDECC): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->ExternalDataEncryptionCapable == 0b10));
 			printf("* Configuration Prevented (CFG_P): %s\n", CfgPCapableStrings[encryptionCapabilities->ConfigurationPrevented]);
-			UCHAR algorithmIndex = encryptionCapabilities->AlgorithmIndex;
-			printf("* Algorithm index: 0x%02X\n", algorithmIndex);
-			int descriptorLength = encryptionCapabilities->DescriptorLength[0] << 8 | encryptionCapabilities->DescriptorLength[1];
-			printf("  * Descriptor Length: %d bytes\n", descriptorLength);
+			printf("* Algorithm index: 0x%02X\n", encryptionCapabilities->AlgorithmIndex);
+			printf("  * Descriptor Length: %d bytes\n", encryptionCapabilities->DescriptorLength);
 			printf("  * Algorithm Valid For Mounted Volume (AVFMV): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->AlgorithmValidForMountedVolume));
 			printf("  * Supplemental Decryption Key Capable (SDK_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->SupplementalDecryptionKeyCapable));
 			printf("  * Message Authentication Code Capable (MAC_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->MacKadCapable));
@@ -427,12 +434,9 @@ main(
 			printf("  * Volume Contains Encrypted Logical Blocks Capable (VCELB_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->VolumeContainsEncryptedLogicalBlocksCapable));
 			printf("  * Unauthenticated KAD Fixed Length (UKADF): %s\n", (encryptionCapabilities->UnauthKadFixedLength ? "Max UKAD Bytes" : "1 Byte to Max UKAD Bytes"));
 			printf("  * Authenticated KAD Fixed Length (AKADF): %s\n", (encryptionCapabilities->AuthKadFixedLength ? "Max AKAD Bytes" : "1 Byte to Max AKAD Bytes"));
-			int maxUnauthKeyBytes = encryptionCapabilities->UnauthKadMaxLength[0] << 8 | encryptionCapabilities->UnauthKadMaxLength[1];
-			printf("  * Maximum Unauthenticated Key-Associated Data Bytes: %d\n", maxUnauthKeyBytes);
-			int maxAuthKeyBytes = encryptionCapabilities->AuthKadMaxLength[0] << 8 | encryptionCapabilities->AuthKadMaxLength[1];
-			printf("  * Maximum Authenticated Key-Associated Data Bytes: %d\n", maxAuthKeyBytes);
-			int keySize = encryptionCapabilities->KeySize[0] << 8 | encryptionCapabilities->KeySize[1];
-			printf("  * Key Size: %d bytes (%d-bit)\n", keySize, keySize * 8);
+			printf("  * Maximum Unauthenticated Key-Associated Data Bytes: %d\n", encryptionCapabilities->UnauthKadMaxLength);
+			printf("  * Maximum Authenticated Key-Associated Data Bytes: %d\n", encryptionCapabilities->AuthKadMaxLength);
+			printf("  * Key Size: %d bytes (%d-bit)\n", encryptionCapabilities->KeySize, encryptionCapabilities->KeySize * 8);
 			printf("  * Decryption KAD Capability: %s\n", DkadCapableStrings[encryptionCapabilities->DecryptionKadCapable]);
 			printf("  * External Encryption Mode Control Capable (EEMC_C): %s\n", EemcCapableStrings[encryptionCapabilities->ExternalEncryptionModeControlCapable]);
 			if (encryptionCapabilities->RawDecryptionModeControlCapabilities == 0x4)
@@ -444,23 +448,21 @@ main(
 				printf("  * Raw Decryption Mode Control (RDMC_C): 0x%02X\n", encryptionCapabilities->RawDecryptionModeControlCapabilities);
 			}
 			printf("  * Encryption Algorithm Records Encryption Mode (EAREM): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->EncryptionAlgorithmRecordsEncryptionMode));
-			int maxSupplementalKeyCount = encryptionCapabilities->MaximumSupplementalDecryptionKeyCount[0] << 8 | encryptionCapabilities->MaximumSupplementalDecryptionKeyCount[1];
-			printf("  * Maximum number of supplemental decryption keys: %d\n", maxSupplementalKeyCount);
-			long algorithmCode = encryptionCapabilities->AlgorithmCode[0] << 24 | encryptionCapabilities->AlgorithmCode[1] << 16 | encryptionCapabilities->AlgorithmCode[2] << 8 | encryptionCapabilities->AlgorithmCode[3];
-			if (algorithmCode == SPIN_TAPE_ALGORITHM_AESGCM)
+			printf("  * Maximum number of supplemental decryption keys: %d\n", encryptionCapabilities->MaximumSupplementalDecryptionKeyCount);
+			if (encryptionCapabilities->AlgorithmCode == SPIN_TAPE_ALGORITHM_AESGCM)
 			{
-				printf("  * Algorithm: AES-GCM (AES%d-GCM)\n", keySize * 8);
-				aesGcmAlgorithmIndex = algorithmIndex;
+				printf("  * Algorithm: AES-GCM (AES%d-GCM)\n", encryptionCapabilities->KeySize * 8);
+				aesGcmAlgorithmIndex = encryptionCapabilities->AlgorithmIndex;
 			}
 			else
 			{
-				printf("  * Unknown Algorithm: 0x%08X\n", algorithmCode);
+				printf("  * Unknown Algorithm: 0x%08X\n", encryptionCapabilities->AlgorithmCode);
 			}
 
 			printf("\n");
 		}
 
-		//  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
+		//  PrintDataBuffer(psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
 	}
 
 	/*
@@ -468,22 +470,22 @@ main(
 	*/
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		length = ResetSrbIn(&sptwb_ex, SCSIOP_INQUIRY);
+		length = ResetSrbIn(psptwb_ex, SCSIOP_INQUIRY);
 		if (length == 0) { goto Cleanup; }
-		sptwb_ex.spt.Cdb[1] = CDB_INQUIRY_EVPD;
-		sptwb_ex.spt.Cdb[2] = VPD_DEVICE_IDENTIFIERS;
-		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
+		psptwb_ex->spt.Cdb[1] = CDB_INQUIRY_EVPD;
+		psptwb_ex->spt.Cdb[2] = VPD_DEVICE_IDENTIFIERS;
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
 		{
-			printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, &sptwb_ex, length);
+			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
+			PrintStatusResultsEx(status, returned, psptwb_ex, length);
 		}
-		int pageCode = sptwb_ex.ucDataBuf[1];
+		int pageCode = psptwb_ex->ucDataBuf[1];
 		if (pageCode == VPD_DEVICE_IDENTIFIERS) {
 
 			printf("Parsing Device Identifiers page...\n");
-			int pageLength = sptwb_ex.ucDataBuf[3];
+			int pageLength = psptwb_ex->ucDataBuf[3];
 			int identifierTotalLength = 0;
 			int currentIdentifier = 0;
 			PVPD_IDENTIFICATION_DESCRIPTOR identifier = NULL;
@@ -492,10 +494,10 @@ main(
 			int identifierInt = 0;
 			for (int i = 4; i < pageLength; i += identifierTotalLength)
 			{
-				identifierLength = sptwb_ex.ucDataBuf[i + 3];
+				identifierLength = psptwb_ex->ucDataBuf[i + 3];
 				identifierTotalLength = FIELD_OFFSET(VPD_IDENTIFICATION_DESCRIPTOR, Identifier[identifierLength]);
 				identifier = calloc(1, identifierTotalLength);
-				memcpy(identifier, sptwb_ex.ucDataBuf + i, identifierTotalLength);
+				memcpy(identifier, psptwb_ex->ucDataBuf + i, identifierTotalLength);
 				switch (identifier->Association)
 				{
 				case VpdAssocDevice:
@@ -603,25 +605,25 @@ main(
 	*/
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_SUPPORTED_KEY_FORMATS);
+		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_SUPPORTED_KEY_FORMATS);
 		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
 		{
-			printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, &sptwb_ex, length);
+			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
+			PrintStatusResultsEx(status, returned, psptwb_ex, length);
 		}
-		int pageCode = sptwb_ex.ucDataBuf[0] << 8 | sptwb_ex.ucDataBuf[1];
+		int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 		if (pageCode == SPIN_TAPE_SUPPORTED_KEY_FORMATS)
 		{
 			char* description;
 			printf("Parsing Supported Key Formats page...\n");
-			int pageLength = sptwb_ex.ucDataBuf[2] << 8 | sptwb_ex.ucDataBuf[3];
+			int pageLength = psptwb_ex->ucDataBuf[2] << 8 | psptwb_ex->ucDataBuf[3];
 
 			for (int i = 0; i < pageLength; i++)
 			{
-				switch (sptwb_ex.ucDataBuf[4 + i])
+				switch (psptwb_ex->ucDataBuf[4 + i])
 				{
 				case SPIN_TAPE_KEY_FORMAT_PLAIN:
 					description = "Plain-text";
@@ -635,13 +637,13 @@ main(
 					break;
 				}
 
-				printf("* Supported Key Format: 0x%02X (%s)\n", sptwb_ex.ucDataBuf[4 + i], description);
+				printf("* Supported Key Format: 0x%02X (%s)\n", psptwb_ex->ucDataBuf[4 + i], description);
 			}
 
 			printf("\n");
 		}
 
-		//  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
+		//  PrintDataBuffer(psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
 	}
 
 	fprintf(
@@ -654,17 +656,17 @@ main(
 	*/
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS);
+		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS);
 		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
 		{
-			printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, &sptwb_ex, length);
+			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
+			PrintStatusResultsEx(status, returned, psptwb_ex, length);
 		}
 
-		//PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
+		//PrintDataBuffer(psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
 	}
 
 	/*
@@ -674,24 +676,24 @@ main(
 	*/
 	if (capRfc3447 && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_WRAPPED_PUBKEY);
+		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_WRAPPED_PUBKEY);
 		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
 		{
-			printf("Status: 0x%02X\n\n", sptwb_ex.spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, &sptwb_ex, length);
+			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
+			PrintStatusResultsEx(status, returned, psptwb_ex, length);
 		}
-		int pageCode = sptwb_ex.ucDataBuf[0] << 8 | sptwb_ex.ucDataBuf[1];
+		int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 		if (pageCode == SPIN_TAPE_WRAPPED_PUBKEY)
 		{
 			printf("Parsing Device Server Key Wrapping Public Key page...\n");
-			int pageLength = sptwb_ex.ucDataBuf[2] << 8 | sptwb_ex.ucDataBuf[3];
+			int pageLength = psptwb_ex->ucDataBuf[2] << 8 | psptwb_ex->ucDataBuf[3];
 			printf("Page length: %d bytes\n", pageLength);
-			long publicKeyType = sptwb_ex.ucDataBuf[4] << 24 | sptwb_ex.ucDataBuf[5] << 16 | sptwb_ex.ucDataBuf[6] << 8 | sptwb_ex.ucDataBuf[7];
-			long publicKeyFormat = sptwb_ex.ucDataBuf[8] << 24 | sptwb_ex.ucDataBuf[9] << 16 | sptwb_ex.ucDataBuf[10] << 8 | sptwb_ex.ucDataBuf[11];
-			int publicKeyLength = sptwb_ex.ucDataBuf[12] << 8 | sptwb_ex.ucDataBuf[13];
+			long publicKeyType = psptwb_ex->ucDataBuf[4] << 24 | psptwb_ex->ucDataBuf[5] << 16 | psptwb_ex->ucDataBuf[6] << 8 | psptwb_ex->ucDataBuf[7];
+			long publicKeyFormat = psptwb_ex->ucDataBuf[8] << 24 | psptwb_ex->ucDataBuf[9] << 16 | psptwb_ex->ucDataBuf[10] << 8 | psptwb_ex->ucDataBuf[11];
+			int publicKeyLength = psptwb_ex->ucDataBuf[12] << 8 | psptwb_ex->ucDataBuf[13];
 			int modulusLength = 0;
 			int exponentLength = 0;
 			char* description;
@@ -731,7 +733,7 @@ main(
 			BOOL leadingZeros = TRUE;
 			int modulusOffset = 0;
 			if (publicKeyModulus != NULL) {
-				memcpy(publicKeyModulus, &sptwb_ex.ucDataBuf[14], modulusLength);
+				memcpy(publicKeyModulus, psptwb_ex->ucDataBuf + 14, modulusLength);
 				for (int i = 0; i < modulusLength; i++)
 				{
 					if (leadingZeros) {
@@ -750,7 +752,7 @@ main(
 			leadingZeros = TRUE;
 			int exponentOffset = 0;
 			if (publicKeyExponent != NULL) {
-				memcpy(publicKeyExponent, &sptwb_ex.ucDataBuf[14 + modulusLength], exponentLength);
+				memcpy(publicKeyExponent, psptwb_ex->ucDataBuf + 14 + modulusLength, exponentLength);
 				for (int i = 0; i < exponentLength; i++)
 				{
 					if (leadingZeros) {
@@ -824,7 +826,7 @@ main(
 			free(publicKeyExponent);
 		}
 
-		//  PrintDataBuffer(sptwb_ex.ucDataBuf, sptwb_ex.spt.DataInTransferLength);
+		//  PrintDataBuffer(psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
 
 	}
 
@@ -850,10 +852,9 @@ main(
 		PPLAIN_KEY_DESCRIPTOR kad = NULL;
 		if (!noKey && keyAssociatedData != NULL) {
 			int kadLength = (int)strlen((char*)keyAssociatedData);
-			int authKadMaxLength = encryptionCapabilities->AuthKadMaxLength[0] << 8 | encryptionCapabilities->AuthKadMaxLength[1];
-			if (encryptionCapabilities->AuthKadFixedLength || kadLength > authKadMaxLength)
+			if (encryptionCapabilities->AuthKadFixedLength || kadLength > encryptionCapabilities->AuthKadMaxLength)
 			{
-				fprintf(stderr, "Key-Associated Data (KAD) must currently be %d ASCII characters%s - other options are not implemented.\n", authKadMaxLength, encryptionCapabilities->AuthKadFixedLength ? "" : " or fewer");
+				fprintf(stderr, "Key-Associated Data (KAD) must currently be %d ASCII characters%s - other options are not implemented.\n", encryptionCapabilities->AuthKadMaxLength, encryptionCapabilities->AuthKadFixedLength ? "" : " or fewer");
 				goto Cleanup;
 			}
 			kadTotalLength = FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[kadLength]);
@@ -900,7 +901,7 @@ main(
 		keyHeader.PageLength[0] = (pageLength >> 8) & 0xFF;
 		keyHeader.PageLength[1] = pageLength & 0xFF;
 
-		length = ResetSrbOut(&sptwb_ex, CDB12GENERIC_LENGTH);
+		length = ResetSrbOut(psptwb_ex, CDB12GENERIC_LENGTH);
 		struct _SECURITY_PROTOCOL_OUT spout = { '\0' };
 		spout.OperationCode = SCSIOP_SECURITY_PROTOCOL_OUT;
 		spout.SecurityProtocol = SECURITY_PROTOCOL_TAPE; // tape encryption
@@ -911,31 +912,31 @@ main(
 		spout.AllocationLength[1] = (allocationLength >> 16) & 0xFF;
 		spout.AllocationLength[2] = (allocationLength >> 8) & 0xFF;
 		spout.AllocationLength[3] = allocationLength & 0xFF;
-		memcpy(sptwb_ex.spt.Cdb, &spout, sizeof(struct _SECURITY_PROTOCOL_OUT));
+		memcpy(psptwb_ex->spt.Cdb, &spout, sizeof(struct _SECURITY_PROTOCOL_OUT));
 		printf("Security Protocol Out:\n\n");
-		PrintDataBuffer(sptwb_ex.spt.Cdb, sizeof(spout));
-		sptwb_ex.spt.DataOutTransferLength = allocationLength;
+		PrintDataBuffer(psptwb_ex->spt.Cdb, sizeof(spout));
+		psptwb_ex->spt.DataOutTransferLength = allocationLength;
 
-		memcpy(sptwb_ex.ucDataBuf, &keyHeader, sizeof(keyHeader));
-		sptwb_ex.ucDataBuf[sizeof(keyHeader) + 0] = (wrappedKeyTotalLength >> 8) & 0xFF;
-		sptwb_ex.ucDataBuf[sizeof(keyHeader) + 1] = wrappedKeyTotalLength & 0xFF;
-		memcpy(sptwb_ex.ucDataBuf + sizeof(keyHeader) + 2, wrappedKey, wrappedKeyTotalLength);
-		memcpy(sptwb_ex.ucDataBuf + sizeof(keyHeader) + 2 + wrappedKeyTotalLength, kad, kadTotalLength);
+		memcpy(psptwb_ex->ucDataBuf, &keyHeader, sizeof(keyHeader));
+		psptwb_ex->ucDataBuf[sizeof(keyHeader) + 0] = (wrappedKeyTotalLength >> 8) & 0xFF;
+		psptwb_ex->ucDataBuf[sizeof(keyHeader) + 1] = wrappedKeyTotalLength & 0xFF;
+		memcpy(psptwb_ex->ucDataBuf + sizeof(keyHeader) + 2, wrappedKey, wrappedKeyTotalLength);
+		memcpy(psptwb_ex->ucDataBuf + sizeof(keyHeader) + 2 + wrappedKeyTotalLength, kad, kadTotalLength);
 
 		printf("Buffer length: %d (0x%02x)\n\n", allocationLength, allocationLength);
 		printf("SRB length: %d (0x%02x)\n\n", length, length);
 
-		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
 		printf("Buffer:\n\n");
-		PrintDataBuffer((PUCHAR)&sptwb_ex.ucDataBuf, sptwb_ex.spt.DataOutTransferLength);
+		PrintDataBuffer((PUCHAR)psptwb_ex->ucDataBuf, psptwb_ex->spt.DataOutTransferLength);
 
 		//PrintSenseInfo(&sptdwb_ex.sptd);
-		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
 		{
-			printf("Status: 0x%02X, SCSI Status: 0x%02x\n\n", status, sptwb_ex.spt.ScsiStatus);
+			printf("Status: 0x%02X, SCSI Status: 0x%02x\n\n", status, psptwb_ex->spt.ScsiStatus);
 		}
-		PrintStatusResultsEx(status, returned, &sptwb_ex, returned);
+		PrintStatusResultsEx(status, returned, psptwb_ex, returned);
 
 	}
 
@@ -959,10 +960,9 @@ main(
 		PPLAIN_KEY_DESCRIPTOR kad = NULL;
 		if (!noKey && keyAssociatedData != NULL) {
 			int kadLength = (int)strlen((char*)keyAssociatedData);
-			int authKadMaxLength = encryptionCapabilities->AuthKadMaxLength[0] << 8 | encryptionCapabilities->AuthKadMaxLength[1];
-			if (encryptionCapabilities->AuthKadFixedLength || kadLength > authKadMaxLength)
+			if (encryptionCapabilities->AuthKadFixedLength || kadLength > encryptionCapabilities->AuthKadMaxLength)
 			{
-				fprintf(stderr, "Key-Associated Data (KAD) must currently be %d ASCII characters%s - other options are not implemented.\n", authKadMaxLength, encryptionCapabilities->AuthKadFixedLength ? "" : " or fewer");
+				fprintf(stderr, "Key-Associated Data (KAD) must currently be %d ASCII characters%s - other options are not implemented.\n", encryptionCapabilities->AuthKadMaxLength, encryptionCapabilities->AuthKadFixedLength ? "" : " or fewer");
 				goto Cleanup;
 			}
 			kadTotalLength = FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[kadLength]);
@@ -1009,7 +1009,7 @@ main(
 		printf("Set plain key with %d byte KAD list:\n\n", kadTotalLength);
 		PrintDataBuffer((PUCHAR)plainKey, plainKeyTotalLength);
 
-		length = ResetSrbOut(&sptwb_ex, CDB12GENERIC_LENGTH);
+		length = ResetSrbOut(psptwb_ex, CDB12GENERIC_LENGTH);
 		struct _SECURITY_PROTOCOL_OUT spout = { '\0' };
 		spout.OperationCode = SCSIOP_SECURITY_PROTOCOL_OUT;
 		spout.SecurityProtocol = SECURITY_PROTOCOL_TAPE; // tape encryption
@@ -1019,57 +1019,57 @@ main(
 		spout.AllocationLength[1] = (plainKeyTotalLength >> 16) & 0xFF;
 		spout.AllocationLength[2] = (plainKeyTotalLength >> 8) & 0xFF;
 		spout.AllocationLength[3] = plainKeyTotalLength & 0xFF;
-		memcpy(sptwb_ex.spt.Cdb, &spout, sizeof(struct _SECURITY_PROTOCOL_OUT));
+		memcpy(psptwb_ex->spt.Cdb, &spout, sizeof(struct _SECURITY_PROTOCOL_OUT));
 		printf("Security Protocol Out:\n\n");
-		PrintDataBuffer(sptwb_ex.spt.Cdb, sizeof(spout));
+		PrintDataBuffer(psptwb_ex->spt.Cdb, sizeof(spout));
 
-		memcpy(sptwb_ex.ucDataBuf, plainKey, plainKeyTotalLength);
+		memcpy(psptwb_ex->ucDataBuf, plainKey, plainKeyTotalLength);
 		free(plainKey);
-		sptwb_ex.spt.DataOutTransferLength = plainKeyTotalLength;
+		psptwb_ex->spt.DataOutTransferLength = plainKeyTotalLength;
 
 		printf("Buffer length: %d (0x%02x)\n\n", plainKeyTotalLength, plainKeyTotalLength);
 		printf("SRB length: %d (0x%02x)\n\n", length, length);
 
-		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
 		printf("Cdb:\n\n");
-		PrintDataBuffer(sptwb_ex.spt.Cdb, sptwb_ex.spt.CdbLength);
+		PrintDataBuffer(psptwb_ex->spt.Cdb, psptwb_ex->spt.CdbLength);
 		printf("Buffer:\n\n");
-		PrintDataBuffer((PUCHAR)&sptwb_ex.ucDataBuf, sptwb_ex.spt.DataOutTransferLength);
+		PrintDataBuffer((PUCHAR)psptwb_ex->ucDataBuf, psptwb_ex->spt.DataOutTransferLength);
 
 		//PrintSenseInfo(&sptdwb_ex.sptd);
-		if (!status || sptwb_ex.spt.ScsiStatus != SCSISTAT_GOOD)
+		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
 		{
-			printf("Status: 0x%02X, SCSI Status: 0x%02x\n\n", status, sptwb_ex.spt.ScsiStatus);
+			printf("Status: 0x%02X, SCSI Status: 0x%02x\n\n", status, psptwb_ex->spt.ScsiStatus);
 		}
-		PrintStatusResultsEx(status, returned, &sptwb_ex, returned);
+		PrintStatusResultsEx(status, returned, psptwb_ex, returned);
 	}
 
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
 		// CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Status page
-		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS);
+		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS);
 		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
-		ParseSimpleSrbIn(&sptwb_ex, status, length, returned, "Encryption Status");
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+		ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Encryption Status");
 
 		// CDB: Security Protocol In, Tape Data Encryption Security Protocol, Next Block Encryption Status page
-		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS);
+		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS);
 		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
-		ParseSimpleSrbIn(&sptwb_ex, status, length, returned, "Next Block Encryption Status");
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+		ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Next Block Encryption Status");
 
 		// CDB: Security Protocol In, Security Protocol Information, Certificate Data
-		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_CERTIFICATE_DATA);
+		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_CERTIFICATE_DATA);
 		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
-		ParseSimpleSrbIn(&sptwb_ex, status, length, returned, "Certificate Data");
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+		ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Certificate Data");
 
 		// CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Management Capabilities page
-		length = CreateSecurityProtocolInSrb(&sptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_MANAGEMENT_CAPABILITIES);
+		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_MANAGEMENT_CAPABILITIES);
 		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, &sptwb_ex, length, &returned);
-		ParseSimpleSrbIn(&sptwb_ex, status, length, returned, "Data Encryption Management Capabilities");
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+		ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Data Encryption Management Capabilities");
 	}
 
 Cleanup:
@@ -1084,6 +1084,9 @@ Cleanup:
 	}
 	if (wrappedDescripters != NULL) {
 		free(wrappedDescripters);
+	}
+	if (psptwb_ex != NULL) {
+		free(psptwb_ex);
 	}
 	CloseHandle(fileHandle);
 	if (length == 0) {

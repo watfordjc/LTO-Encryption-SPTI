@@ -40,16 +40,18 @@ typedef struct _SCSI_PASS_THROUGH_WITH_BUFFERS_EX {
     UCHAR             ucDataBuf[SPTWB_DATA_LENGTH];     // buffer for DataIn or DataOut
 } SCSI_PASS_THROUGH_WITH_BUFFERS_EX, *PSCSI_PASS_THROUGH_WITH_BUFFERS_EX;
 
+#pragma pack(push)
+#pragma pack(1)
 typedef struct _DATA_ENCRYPTION_CAPABILITIES {
-    UCHAR PageCode[2];
-    UCHAR PageLength[2];
+    UINT16 PageCode; // Network Byte Order
+    UINT16 PageLength; // Network Byte Order
     UCHAR ConfigurationPrevented : 2;
     UCHAR ExternalDataEncryptionCapable : 2;
     UCHAR Reserved1 : 4;
     UCHAR Reserved2[15];
     UCHAR AlgorithmIndex;
     UCHAR Reserved3;
-    UCHAR DescriptorLength[2];
+    UINT16 DescriptorLength; // Network Byte Order
     UCHAR EncryptCapable : 2;
     UCHAR DecryptCapable : 2;
     UCHAR DistinguishEncryptedLogicalBlockCapable : 1;
@@ -62,18 +64,19 @@ typedef struct _DATA_ENCRYPTION_CAPABILITIES {
     UCHAR KadFormatCapable : 1;
     UCHAR NonceKadCapable : 2;
     UCHAR AlgorithmValidForCurrentLogicalPosition : 2;
-    UCHAR UnauthKadMaxLength[2];
-    UCHAR AuthKadMaxLength[2];
-    UCHAR KeySize[2];
+    UINT16 UnauthKadMaxLength; // Network Byte Order
+    UINT16 AuthKadMaxLength; // Network Byte Order
+    UINT16 KeySize; // Network Byte Order
     UCHAR EncryptionAlgorithmRecordsEncryptionMode : 1;
     UCHAR RawDecryptionModeControlCapabilities : 3;
     UCHAR ExternalEncryptionModeControlCapable : 2;
     UCHAR DecryptionKadCapable : 2;
     UCHAR Reserved4;
-    UCHAR MaximumSupplementalDecryptionKeyCount[2];
+    UINT16 MaximumSupplementalDecryptionKeyCount; // Network Byte Order
     UCHAR Reserved5[4];
-    UCHAR AlgorithmCode[4];
+    UINT32 AlgorithmCode; // Network Byte Order
 } DATA_ENCRYPTION_CAPABILITIES, *PDATA_ENCRYPTION_CAPABILITIES;
+#pragma pack(pop)
 
 typedef struct _KEY_HEADER {
     UCHAR PageCode[2];
