@@ -184,13 +184,13 @@ main(
 
 	shareMode = FILE_SHARE_READ;
 	accessMode = GENERIC_WRITE | GENERIC_READ;
-	int logicalUnitIdentifierLength = 0;
+	UINT16 logicalUnitIdentifierLength = 0;
 	PUCHAR logicalUnitIdentifier = NULL;
 	PDATA_ENCRYPTION_CAPABILITIES encryptionCapabilities = NULL;
 	BOOL capRfc3447 = FALSE;
 	CHAR aesGcmAlgorithmIndex = -1;
 	int wrappedDescriptorsLength = 0;
-	PUCHAR wrappedDescripters = NULL;
+	PUCHAR wrappedDescriptors = NULL;
 	int keyType = -1;
 	int keyFormat = -1;
 	int keyLength = 0;
@@ -511,7 +511,7 @@ main(
 			int identifierTotalLength = 0;
 			int currentIdentifier = 0;
 			PVPD_IDENTIFICATION_DESCRIPTOR identifier = NULL;
-			int identifierLength = 0;
+			UCHAR identifierLength = 0;
 			char* description = NULL;
 			int identifierInt = 0;
 			for (int i = 4; i < pageLength; i += identifierTotalLength)
@@ -673,11 +673,13 @@ main(
 		"** This device %s RFC 3447 AES Key-Wrapping. **\n\n", capRfc3447 ? "supports" : "doesn't support"
 	);
 
-	/*
-	* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Status page
-	*/
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
+		int pageCode;
+
+		/*
+		* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Status page
+		*/
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
@@ -687,169 +689,34 @@ main(
 			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
 			PrintStatusResultsEx(status, returned, psptwb_ex, length);
 		}
-
-		//PrintDataBuffer(psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
-	}
-
-	/*
-	* If the device supports AES key wrapping (RFC 3447), try to obtain the public key
-	*
-	* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Device Server Key Wrapping Public Key page
-	*/
-	if (capRfc3447 && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	{
-		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_WRAPPED_PUBKEY);
-		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-
-		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
-		{
-			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, psptwb_ex, length);
-		}
-		int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
-		if (pageCode == SPIN_TAPE_WRAPPED_PUBKEY)
-		{
-			printf("Parsing Device Server Key Wrapping Public Key page...\n");
-			int pageLength = psptwb_ex->ucDataBuf[2] << 8 | psptwb_ex->ucDataBuf[3];
-			printf("Page length: %d bytes\n", pageLength);
-			long publicKeyType = psptwb_ex->ucDataBuf[4] << 24 | psptwb_ex->ucDataBuf[5] << 16 | psptwb_ex->ucDataBuf[6] << 8 | psptwb_ex->ucDataBuf[7];
-			long publicKeyFormat = psptwb_ex->ucDataBuf[8] << 24 | psptwb_ex->ucDataBuf[9] << 16 | psptwb_ex->ucDataBuf[10] << 8 | psptwb_ex->ucDataBuf[11];
-			int publicKeyLength = psptwb_ex->ucDataBuf[12] << 8 | psptwb_ex->ucDataBuf[13];
-			int modulusLength = 0;
-			int exponentLength = 0;
-			char* description;
-			BOOL keyValueConsistent = FALSE;
-			BOOL keyLengthConsistent = FALSE;
-			switch (publicKeyType) {
-			case SPIN_TAPE_PUBKEY_TYPE_RSA2048:
-				description = "RSA-2048";
-				keyValueConsistent = publicKeyFormat == SPIN_TAPE_PUBKEY_FORMAT_RSA2048;
-				keyLengthConsistent = publicKeyLength == SPIN_TAPE_PUBKEY_LENGTH_RSA2048;
-				modulusLength = SPIN_TAPE_PUBKEY_LENGTH_RSA2048 / 2; // 256 bytes for RSA-2048
-				exponentLength = SPIN_TAPE_PUBKEY_LENGTH_RSA2048 / 2; // 256 bytes for RSA-2048
-				break;
-			case SPIN_TAPE_PUBKEY_TYPE_ECC521:
-				description = "ECC-521";
-				keyValueConsistent = publicKeyFormat == SPIN_TAPE_PUBKEY_FORMAT_ECC521;
-				keyLengthConsistent = publicKeyLength == SPIN_TAPE_PUBKEY_LENGTH_ECC521;
-				// TODO: Work out how X9.63 stores ECC keys and how to calculate length parameters
-				break;
-			default:
-				description = "Unknown";
-				break;
-			}
-			if (!keyValueConsistent)
-			{
-				fprintf(stderr, "\nPublic Key type %s and key format 0x%08x are not consistent.\n", description, publicKeyFormat);
-				goto Cleanup;
-			}
-			if (!keyLengthConsistent)
-			{
-				fprintf(stderr, "\nPublic Key type %s and wrapped key length (%d bytes) are not consistent.\n", description, publicKeyLength);
-				goto Cleanup;
-			}
-			printf("* Public Key Type: %s\n", description);
-			PUCHAR publicKeyModulus = calloc(modulusLength, sizeof(UCHAR));
-			PUCHAR publicKeyExponent = calloc(exponentLength, sizeof(UCHAR));
-			BOOL leadingZeros = TRUE;
-			int modulusOffset = 0;
-			if (publicKeyModulus != NULL) {
-				memcpy(publicKeyModulus, psptwb_ex->ucDataBuf + 14, modulusLength);
-				for (int i = 0; i < modulusLength; i++)
-				{
-					if (leadingZeros) {
-						leadingZeros = publicKeyModulus[i] == 0;
-						if (leadingZeros) {
-							modulusOffset++;
-							continue;
-						}
-						else
-						{
-							break;
-						}
-					}
-				}
-			}
-			leadingZeros = TRUE;
-			int exponentOffset = 0;
-			if (publicKeyExponent != NULL) {
-				memcpy(publicKeyExponent, psptwb_ex->ucDataBuf + 14 + modulusLength, exponentLength);
-				for (int i = 0; i < exponentLength; i++)
-				{
-					if (leadingZeros) {
-						leadingZeros = publicKeyExponent[i] == 0;
-						if (leadingZeros) {
-							exponentOffset++;
-							continue;
-						}
-						else
-						{
-							break;
-						}
-					}
-				}
-			}
-			// Convert the public key to hex-encoded DER if the following are true:
-			// 1) The modulus is 256 bytes (2048-bit),
-			// 2) The exponent is 3 bytes long (99.5% of RSA keys use e=65537=0x010001)
-			// NB: A 2040-bit (255 byte) modulus fails to meet these conditions - DER forbids integers starting 0x0000
-			if (modulusOffset == 0 && exponentOffset == (exponentLength - 3))
-			{
-				// ASN.1
-				printf("  * DER: 30820122"); // 30=SEQUENCE, 82=multibyte length (0x80) using 2 bytes (0x2), 0122=length
-				// RSA Encryption (Public Key) - OID 1.2.840.113549.1.1.1
-				printf("300D"); // 30=SEQUENCE, 0D=length
-				printf("0609"); // 06=OID, 09=length
-				printf("2A"); // 2A=1.2 (2A/28.2A%28),
-				printf("864886F70D010101"); // 8648=840 (VLQ/Base-128), 86F70D=113549 (VLQ/Base-128), 010101=1.1.1 (VLQ/Base-128)
-				printf("0500"); // 05=NULL, 00=length
-				// Bit string wrapper
-				printf("0382010F00"); // 03=BIT STRING, 82=multibyte length using 2 bytes, 010F=length, 00=unused (trailing) bits in last octet of bit string
-				// Modulus + exponent
-				printf("3082010A"); // 30=SEQUENCE, 82=multibyte length using 2 bytes, 010A=length
-				// Modulus integer
-				printf("02820101"); // 02=INTEGER, 82=multibyte length using 2 bytes, 0101=length
-				printf("00"); // 00=leading zero so unsigned integer is represented as a positive signed integer
-				for (int i = 0; i < 256; i++)
-				{
-					printf("%X", (publicKeyModulus[i] & 0xFF) >> 4); // Upper 4 bits
-					printf("%X", publicKeyModulus[i] & 0x0F); // Lower 4 bits
-				}
-				// Exponent integer
-				printf("02%02X", 256 - exponentOffset); // 02=INTEGER, %02X=length
-				for (int i = exponentOffset; i < 256; i++)
-				{
-					printf("%X", (publicKeyExponent[i] & 0xFF) >> 4); // Upper 4 bits
-					printf("%X", publicKeyExponent[i] & 0x0F); // Lower 4 bits
-				}
-				printf("\n");
-				wrappedDescriptorsLength = 4 + logicalUnitIdentifierLength + 4 + 2;
-				wrappedDescripters = calloc(wrappedDescriptorsLength, sizeof(UCHAR));
-				wrappedDescripters[2] = (logicalUnitIdentifierLength >> 8) & 0xF;
-				wrappedDescripters[3] = logicalUnitIdentifierLength & 0xF;
-				memcpy(wrappedDescripters + 4, logicalUnitIdentifier, logicalUnitIdentifierLength);
-				wrappedDescripters[4 + logicalUnitIdentifierLength + 0] = 0x4;
-				wrappedDescripters[4 + logicalUnitIdentifierLength + 3] = 0x2;
-				wrappedDescripters[4 + logicalUnitIdentifierLength + 4] = 0x1;
-				printf("* Wrapped Key Descriptors: ");
-				for (int i = 0; i < wrappedDescriptorsLength; i++)
-				{
-					printf("%X", (wrappedDescripters[i] & 0xFF) >> 4); // Upper 4 bits
-					printf("%X", wrappedDescripters[i] & 0x0F); // Lower 4 bits
-				}
-				printf("\n\n");
-			}
-			else
-			{
-				fprintf(stderr, "\nOnly RSA-2048 public keys with a 256 byte modulus and 3 byte exponent are currently supported.\n");
-			}
-			free(publicKeyModulus);
-			free(publicKeyExponent);
+		pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
+		if (pageCode == SPIN_TAPE_ENCRYPTION_STATUS) {
+			ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Data Encryption Status");
 		}
 
-		//  PrintDataBuffer(psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
 
+		/*
+		* If the device supports AES key wrapping (RFC 3447), try to obtain the public key
+		*
+		* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Device Server Key Wrapping Public Key page
+		*/
+		if (capRfc3447)
+		{
+			length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_WRAPPED_PUBKEY);
+			if (length == 0) { goto Cleanup; }
+			status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+
+			if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
+			{
+				printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
+				PrintStatusResultsEx(status, returned, psptwb_ex, length);
+			}
+			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
+			if (pageCode == SPIN_TAPE_WRAPPED_PUBKEY)
+			{
+				ParseDeviceServerKeyWrappingPublicKey((PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY)psptwb_ex->ucDataBuf, logicalUnitIdentifierLength, logicalUnitIdentifier, &wrappedDescriptorsLength, &wrappedDescriptors);
+			}
+		}
 	}
 
 	/*
@@ -901,22 +768,27 @@ main(
 		keyHeader.DecriptionMode = 0x2;
 		keyHeader.AlgorithmIndex = aesGcmAlgorithmIndex;
 		keyHeader.KeyFormat = (UCHAR)keyFormat;
-		keyHeader.KADFormat = SPOUT_TAPE_KAD_FORMAT_ASCII;
+		if (kad != NULL) {
+			keyHeader.KADFormat = SPOUT_TAPE_KAD_FORMAT_ASCII;
+		}
 
 		int wrappedKeyTotalLength = 4 + wrappedDescriptorsLength + 2 + wrappedKeyLength + 2;
-		PUCHAR wrappedKey = calloc(wrappedKeyTotalLength, sizeof(UCHAR));
+		PUCHAR wrappedKey = calloc(wrappedKeyTotalLength, 1);
 		wrappedKey[0] = (keyType >> 8) & 0xFF;
 		wrappedKey[1] = keyType & 0xFF;
 		wrappedKey[2] = (wrappedDescriptorsLength >> 8) & 0xFF;
 		wrappedKey[3] = wrappedDescriptorsLength & 0xFF;
-		memcpy(wrappedKey + 4, wrappedDescripters, wrappedDescriptorsLength);
-		wrappedKey[4 + wrappedDescriptorsLength + 0] = (wrappedKeyLength >> 8) & 0xFF;
-		wrappedKey[4 + wrappedDescriptorsLength + 1] = wrappedKeyLength & 0xFF;
-		UCHAR temp[3] = { 0 };
-		for (int i = 0; i < wrappedKeyLength; i++)
+		if (wrappedDescriptors != NULL)
 		{
-			memcpy(temp, &key[i * 2], 2);
-			wrappedKey[4 + wrappedDescriptorsLength + 2 + i] = strtol((char*)temp, NULL, 16) & 0xFF;
+			memcpy(wrappedKey + 4, wrappedDescriptors, wrappedDescriptorsLength);
+			wrappedKey[4 + wrappedDescriptorsLength + 0] = (wrappedKeyLength >> 8) & 0xFF;
+			wrappedKey[4 + wrappedDescriptorsLength + 1] = wrappedKeyLength & 0xFF;
+			UCHAR temp[3] = { 0 };
+			for (int i = 0; i < wrappedKeyLength; i++)
+			{
+				memcpy(temp, &key[i * 2], 2);
+				wrappedKey[4 + wrappedDescriptorsLength + 2 + i] = strtol((char*)temp, NULL, 16) & 0xFF;
+			}
 		}
 
 		int pageLength = sizeof(KEY_HEADER) - 4 + 2 + wrappedKeyTotalLength + kadTotalLength;
@@ -942,8 +814,14 @@ main(
 		memcpy(psptwb_ex->ucDataBuf, &keyHeader, sizeof(keyHeader));
 		psptwb_ex->ucDataBuf[sizeof(keyHeader) + 0] = (wrappedKeyTotalLength >> 8) & 0xFF;
 		psptwb_ex->ucDataBuf[sizeof(keyHeader) + 1] = wrappedKeyTotalLength & 0xFF;
-		memcpy(psptwb_ex->ucDataBuf + sizeof(keyHeader) + 2, wrappedKey, wrappedKeyTotalLength);
-		memcpy(psptwb_ex->ucDataBuf + sizeof(keyHeader) + 2 + wrappedKeyTotalLength, kad, kadTotalLength);
+		if (wrappedKey != NULL) {
+			memcpy(psptwb_ex->ucDataBuf + sizeof(keyHeader) + 2, wrappedKey, wrappedKeyTotalLength);
+			free(wrappedKey);
+		}
+		if (kad != NULL) {
+			memcpy(psptwb_ex->ucDataBuf + sizeof(keyHeader) + 2 + wrappedKeyTotalLength, kad, kadTotalLength);
+			free(kad);
+		}
 
 		printf("Buffer length: %d (0x%02x)\n\n", allocationLength, allocationLength);
 		printf("SRB length: %d (0x%02x)\n\n", length, length);
@@ -1014,7 +892,7 @@ main(
 		{
 			plainKey->KeyFormat = (UCHAR)keyFormat;
 		}
-		plainKey->KADFormat = noKey ? 0x0 : SPOUT_TAPE_KAD_FORMAT_ASCII;
+		plainKey->KADFormat = keyAssociatedData != NULL ? 0x0 : SPOUT_TAPE_KAD_FORMAT_ASCII;
 		plainKey->KeyLength[1] = noKey ? 0x0 : 0x20;
 
 		if (!noKey) {
@@ -1073,7 +951,7 @@ main(
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-		ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Encryption Status");
+		ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Data Encryption Status");
 
 		// CDB: Security Protocol In, Tape Data Encryption Security Protocol, Next Block Encryption Status page
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS);
@@ -1116,8 +994,8 @@ Cleanup:
 	if (logicalUnitIdentifier != NULL) {
 		free(logicalUnitIdentifier);
 	}
-	if (wrappedDescripters != NULL) {
-		free(wrappedDescripters);
+	if (wrappedDescriptors != NULL) {
+		free(wrappedDescriptors);
 	}
 	if (psptwb_ex != NULL) {
 		free(psptwb_ex);
@@ -1188,6 +1066,165 @@ ParseSimpleSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG status, ULO
 		printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
 		PrintStatusResultsEx(status, returned, psptwb_ex, length);
 	}
+}
+
+BOOL
+ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY deviceServerKeyWrappingPublicKey, UINT16 logicalUnitIdentifierLength, PUCHAR logicalUnitIdentifier, int* wrappedDescriptorsLength, PUCHAR* wrappedDescriptorsPtr)
+{
+	// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+	deviceServerKeyWrappingPublicKey->PageCode = ntohs(deviceServerKeyWrappingPublicKey->PageCode);
+	deviceServerKeyWrappingPublicKey->PageLength = ntohs(deviceServerKeyWrappingPublicKey->PageLength);
+	deviceServerKeyWrappingPublicKey->PublicKeyType = ntohl(deviceServerKeyWrappingPublicKey->PublicKeyType);
+	deviceServerKeyWrappingPublicKey->PublicKeyFormat = ntohl(deviceServerKeyWrappingPublicKey->PublicKeyFormat);
+	deviceServerKeyWrappingPublicKey->PublicKeyLength = ntohs(deviceServerKeyWrappingPublicKey->PublicKeyLength);
+
+	printf("Parsing Device Server Key Wrapping Public Key page...\n");
+	printf("Page length: %d bytes\n", deviceServerKeyWrappingPublicKey->PageLength);
+	PRSA2048_PUBLIC_KEY rsa2048PublicKey = NULL;
+	int modulusLength = 0;
+	int modulusOffset = 0;
+	int exponentLength = 0;
+	int exponentOffset = 0;
+	PCHAR description;
+	BOOL keyFormatConsistent = FALSE;
+	BOOL keyLengthConsistent = FALSE;
+	// Analyse the key metadata for consistency
+	switch (deviceServerKeyWrappingPublicKey->PublicKeyType) {
+	case SPIN_TAPE_PUBKEY_TYPE_RSA2048:
+		description = "RSA-2048";
+		keyFormatConsistent = deviceServerKeyWrappingPublicKey->PublicKeyFormat == SPIN_TAPE_PUBKEY_FORMAT_RSA2048;
+		keyLengthConsistent = deviceServerKeyWrappingPublicKey->PublicKeyLength == SPIN_TAPE_PUBKEY_LENGTH_RSA2048;
+		modulusLength = SPIN_TAPE_PUBKEY_LENGTH_RSA2048 / 2; // 256 bytes for RSA-2048
+		exponentLength = SPIN_TAPE_PUBKEY_LENGTH_RSA2048 / 2; // 256 bytes for RSA-2048
+		break;
+	case SPIN_TAPE_PUBKEY_TYPE_ECC521:
+		description = "ECC-521";
+		keyFormatConsistent = deviceServerKeyWrappingPublicKey->PublicKeyFormat == SPIN_TAPE_PUBKEY_FORMAT_ECC521;
+		keyLengthConsistent = deviceServerKeyWrappingPublicKey->PublicKeyLength == SPIN_TAPE_PUBKEY_LENGTH_ECC521;
+		// TODO: Work out how X9.63 stores ECC keys and how to calculate length parameters
+		break;
+	default:
+		description = "Unknown";
+		break;
+	}
+	// Return early if key format is inconsistent with key type
+	if (!keyFormatConsistent)
+	{
+		fprintf(stderr, "\nPublic Key type %s and key format 0x%08x are not consistent.\n", description, deviceServerKeyWrappingPublicKey->PublicKeyFormat);
+		return FALSE;
+	}
+	// Return early if key length is inconsistent with key type
+	if (!keyLengthConsistent)
+	{
+		fprintf(stderr, "\nPublic Key type %s and wrapped key length (%d bytes) are not consistent.\n", description, deviceServerKeyWrappingPublicKey->PublicKeyLength);
+		return FALSE;
+	}
+	printf("* Public Key Type: %s\n", description);
+	// If the key type is handled, cast the PublicKey field to a key type specific struct
+	if (deviceServerKeyWrappingPublicKey->PublicKeyType == SPIN_TAPE_PUBKEY_TYPE_RSA2048) {
+		rsa2048PublicKey = (PRSA2048_PUBLIC_KEY)deviceServerKeyWrappingPublicKey->PublicKey;
+	}
+	// If RSA-2048, find the first (most significant) non-zero byte for the modulus and exponent
+	if (rsa2048PublicKey != NULL) {
+		for (int i = 0; i < modulusLength; i++)
+		{
+			if (rsa2048PublicKey->Modulus[i] == 0)
+			{
+				modulusOffset++;
+				continue;
+			}
+			else
+			{
+				break;
+			}
+		}
+		for (int i = 0; i < exponentLength; i++)
+		{
+			if (rsa2048PublicKey->Exponent[i] == 0)
+			{
+				exponentOffset++;
+				continue;
+			}
+			else
+			{
+				break;
+			}
+		}
+	}
+	// Convert the public key to hex-encoded DER if the following are true:
+	// 1) The modulus is 256 bytes (2048-bit),
+	// 2) The exponent is 3 bytes long (99.5% of RSA keys use e=65537=0x010001)
+	// NB: A 2040-bit (255 byte) modulus fails to meet these conditions - DER forbids integers starting 0x0000
+	if (rsa2048PublicKey != NULL && modulusOffset == 0 && exponentOffset == (exponentLength - 3))
+	{
+		// ASN.1
+		printf("  * DER: 30820122"); // 30=SEQUENCE, 82=multibyte length (0x80) using 2 bytes (0x2), 0122=length
+		// RSA Encryption (Public Key) - OID 1.2.840.113549.1.1.1
+		printf("300D"); // 30=SEQUENCE, 0D=length
+		printf("0609"); // 06=OID, 09=length
+		printf("2A"); // 2A=1.2 (2A/28.2A%28),
+		printf("864886F70D010101"); // 8648=840 (VLQ/Base-128), 86F70D=113549 (VLQ/Base-128), 010101=1.1.1 (VLQ/Base-128)
+		printf("0500"); // 05=NULL, 00=length
+		// Bit string wrapper
+		printf("0382010F00"); // 03=BIT STRING, 82=multibyte length using 2 bytes, 010F=length, 00=unused (trailing) bits in last octet of bit string
+		// Modulus + exponent
+		printf("3082010A"); // 30=SEQUENCE, 82=multibyte length using 2 bytes, 010A=length
+		// Modulus integer
+		printf("02820101"); // 02=INTEGER, 82=multibyte length using 2 bytes, 0101=length
+		printf("00"); // 00=leading zero so unsigned integer is represented as a positive signed integer
+		for (int i = 0; i < 256; i++)
+		{
+			printf("%X", (rsa2048PublicKey->Modulus[i] & 0xFF) >> 4); // Upper 4 bits
+			printf("%X", rsa2048PublicKey->Modulus[i] & 0x0F); // Lower 4 bits
+		}
+		// Exponent integer
+		printf("02%02X", 256 - exponentOffset); // 02=INTEGER, %02X=length
+		for (int i = exponentOffset; i < 256; i++)
+		{
+			printf("%X", (rsa2048PublicKey->Exponent[i] & 0xFF) >> 4); // Upper 4 bits
+			printf("%X", rsa2048PublicKey->Exponent[i] & 0x0F); // Lower 4 bits
+		}
+		printf("\n");
+
+		// The length for a wrapped key descriptor containing the logical unit identifier
+		int deviceServerIdentificationLength = FIELD_OFFSET(WRAPPED_KEY_DESCRIPTOR, Descriptor[logicalUnitIdentifierLength]);
+		// The number 256 requires 2 bytes of storage
+		UINT16 wrappedKeyLengthLength = 2;
+		// The length for a wrapped key descriptor containing the number 256
+		int wrappedKeyLengthDescriptorLength = FIELD_OFFSET(WRAPPED_KEY_DESCRIPTOR, Descriptor[wrappedKeyLengthLength]);
+		// The combined length of all wrapped key descriptors
+		*wrappedDescriptorsLength = deviceServerIdentificationLength + wrappedKeyLengthDescriptorLength;
+		// Allocate memory to store the combined descriptors
+		PUCHAR wrappedDescriptors = calloc(*wrappedDescriptorsLength, 1);
+		// Update the pointer outside the function
+		*wrappedDescriptorsPtr = wrappedDescriptors;
+
+		// Create a wrapped key descriptor at byte 0 for the device server identification descriptor
+		PWRAPPED_KEY_DESCRIPTOR deviceServerIdentification = (PWRAPPED_KEY_DESCRIPTOR)(wrappedDescriptors + 0);
+		deviceServerIdentification->Type = WRAPPED_KEY_DESCRIPTOR_TYPE_DEVICE_ID;
+		deviceServerIdentification->Length = htons(logicalUnitIdentifierLength);
+		memcpy(deviceServerIdentification->Descriptor, logicalUnitIdentifier, logicalUnitIdentifierLength);
+
+		// Append a wrapped key descriptor for the wrapped key length descriptor
+		PWRAPPED_KEY_DESCRIPTOR wrappedKeyLengthDescriptor = (PWRAPPED_KEY_DESCRIPTOR)(wrappedDescriptors + deviceServerIdentificationLength);
+		wrappedKeyLengthDescriptor->Type = WRAPPED_KEY_DESCRIPTOR_TYPE_KEY_LENGTH;
+		wrappedKeyLengthDescriptor->Length = htons(wrappedKeyLengthLength);
+		wrappedKeyLengthDescriptor->Descriptor[0] = 0x01; // MSB of 256 (0x0100)
+		wrappedKeyLengthDescriptor->Descriptor[1] = 0x00; // LSB of 256 (0x0100)
+
+		printf("* Wrapped Key Descriptors: ");
+		for (int i = 0; i < *wrappedDescriptorsLength; i++)
+		{
+			printf("%X", (wrappedDescriptors[i] & 0xFF) >> 4); // Upper 4 bits
+			printf("%X", wrappedDescriptors[i] & 0x0F); // Lower 4 bits
+		}
+		printf("\n\n");
+	}
+	else
+	{
+		fprintf(stderr, "\nOnly RSA-2048 public keys with a 256 byte modulus and 3 byte exponent are currently supported.\n");
+	}
+	return TRUE;
 }
 
 /// <summary>

@@ -80,6 +80,25 @@ typedef struct _DATA_ENCRYPTION_CAPABILITIES {
 
 #pragma pack(push)
 #pragma pack(1)
+typedef struct _DEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY {
+    UINT16 PageCode; // Network Byte Order
+    UINT16 PageLength; // Network Byte Order
+    UINT32 PublicKeyType; // Network Byte Order
+    UINT32 PublicKeyFormat; // Network Byte Order
+    UINT16 PublicKeyLength; // Network Byte Order
+#if !defined(__midl)
+    UCHAR PublicKey[0];
+#endif
+} DEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY, *PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY;
+#pragma pack(pop)
+
+typedef struct _RSA2048_PUBLIC_KEY {
+    UCHAR Modulus[256];
+    UCHAR Exponent[256];
+} RSA2048_PUBLIC_KEY, *PRSA2048_PUBLIC_KEY;
+
+#pragma pack(push)
+#pragma pack(1)
 typedef struct _NEXT_BLOCK_ENCRYPTION_STATUS {
     UINT16 PageCode; // Network Byte Order
     UINT16 PageLength; // Network Byte Order
@@ -152,6 +171,18 @@ typedef struct _PLAIN_KEY_DESCRIPTOR {
 #endif
 } PLAIN_KEY_DESCRIPTOR, *PPLAIN_KEY_DESCRIPTOR;
 
+#pragma pack(push)
+#pragma pack(1)
+typedef struct _WRAPPED_KEY_DESCRIPTOR {
+    UCHAR Type;
+    UCHAR Reserved1;
+    UINT16 Length; // Network Byte Order
+#if !defined(__midl)
+    UCHAR Descriptor[0];
+#endif
+} WRAPPED_KEY_DESCRIPTOR, *PWRAPPED_KEY_DESCRIPTOR;
+#pragma pack(pop)
+
 ULONG
 CreateSecurityProtocolInSrb(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR securityProtocol, UCHAR pageCode);
 
@@ -160,6 +191,9 @@ SendSrb(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG l
 
 VOID
 ParseSimpleSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG status, ULONG length, DWORD returned, PCHAR cdbDescription);
+
+BOOL
+ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY deviceServerKeyWrappingPublicKey, UINT16 logicalUnitIdentifierLength, PUCHAR logicalUnitIdentifier, int* wrappedDescriptorsLength, PUCHAR* wrappedDescriptors);
 
 VOID
 ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS pNextBlockStatus, CHAR aesGcmAlgorithmIndex);
@@ -263,7 +297,13 @@ QueryPropertyForDevice(_In_ HANDLE, _Out_ PULONG, _Out_ PUCHAR, _Out_ PSTORAGE_B
 #define SPOUT_TAPE_KAD_FORMAT_BINARY 0x01
 #define SPOUT_TAPE_KAD_FORMAT_ASCII 0x02
 
-#define SPOUT_TAPE_KAD_PLAIN_TYPE_UNAUTH 0X0
-#define SPOUT_TAPE_KAD_PLAIN_TYPE_AUTH 0X1
-#define SPOUT_TAPE_KAD_PLAIN_TYPE_NONCE 0X2
-#define SPOUT_TAPE_KAD_PLAIN_TYPE_METADATA 0X3
+#define SPOUT_TAPE_KAD_PLAIN_TYPE_UNAUTH 0x0
+#define SPOUT_TAPE_KAD_PLAIN_TYPE_AUTH 0x1
+#define SPOUT_TAPE_KAD_PLAIN_TYPE_NONCE 0x2
+#define SPOUT_TAPE_KAD_PLAIN_TYPE_METADATA 0x3
+
+#define WRAPPED_KEY_DESCRIPTOR_TYPE_DEVICE_ID 0x00
+#define WRAPPED_KEY_DESCRIPTOR_TYPE_WRAPPER_ID 0x01
+#define WRAPPED_KEY_DESCRIPTOR_TYPE_KEY_INFO 0x02
+#define WRAPPED_KEY_DESCRIPTOR_TYPE_KEY_ID 0x03
+#define WRAPPED_KEY_DESCRIPTOR_TYPE_KEY_LENGTH 0x04
