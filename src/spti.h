@@ -42,6 +42,37 @@ typedef struct _SCSI_PASS_THROUGH_WITH_BUFFERS_EX {
 
 #pragma pack(push)
 #pragma pack(1)
+typedef struct _SECURITY_PROTOCOL_COMPLIANCE {
+    UINT32 PageLength; // Network Byte Order
+#if !defined(__midl)
+    UCHAR Descriptor[0];
+#endif
+} SECURITY_PROTOCOL_COMPLIANCE, *PSECURITY_PROTOCOL_COMPLIANCE;
+#pragma pack(pop)
+
+#pragma pack(push)
+#pragma pack(1)
+typedef struct _SECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR {
+    UINT16 DescriptorType; // Network Byte Order
+    UCHAR Reserved1[2];
+    UINT32 DescriptorLength; // Network Byte Order
+#if !defined(__midl)
+    UCHAR DescriptorInformation[0];
+#endif
+} SECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR, *PSECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR;
+#pragma pack(pop)
+
+typedef struct _SECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR_INFO_FIPS140 {
+    UCHAR Revision;
+    UCHAR OverallSecurityLevel;
+    UCHAR Reserved2[6];
+    UCHAR HardwareVersion[128];
+    UCHAR SoftwareVersion[128];
+    UCHAR ModuleName[256];
+} SECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR_INFO_FIPS140, *PSECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR_INFO_FIPS140;
+
+#pragma pack(push)
+#pragma pack(1)
 typedef struct _DATA_ENCRYPTION_CAPABILITIES {
     UINT16 PageCode; // Network Byte Order
     UINT16 PageLength; // Network Byte Order
@@ -192,6 +223,12 @@ SendSrb(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG l
 VOID
 ParseSimpleSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG status, ULONG length, DWORD returned, PCHAR cdbDescription);
 
+VOID
+ParseSecurityCompliance(PSECURITY_PROTOCOL_COMPLIANCE pSecurityCompliance);
+
+PCHAR
+NullPaddedNullTerminatedToString(UINT32 arrayLength, PUCHAR characterArray);
+
 BOOL
 ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY deviceServerKeyWrappingPublicKey, UINT16 logicalUnitIdentifierLength, PUCHAR logicalUnitIdentifier, int* wrappedDescriptorsLength, PUCHAR* wrappedDescriptors);
 
@@ -267,6 +304,11 @@ QueryPropertyForDevice(_In_ HANDLE, _Out_ PULONG, _Out_ PUCHAR, _Out_ PSTORAGE_B
 #define SPIN_PROTOCOL_LIST 0x00
 #define SPIN_CERTIFICATE_DATA 0x01
 #define SPIN_SECURITY_COMPLIANCE 0x02
+
+#define SPIN_SECURITY_COMPLIANCE_FIPS140 0x0001
+
+#define SPIN_SECURITY_COMPLIANCE_FIPS140_2 0x32
+#define SPIN_SECURITY_COMPLIANCE_FIPS140_3 0x33
 
 #define SPIN_TAPE_ENCRYPTION_IN_SUPPORT 0x00
 #define SPIN_TAPE_ENCRYPTION_OUT_SUPPORT 0x01

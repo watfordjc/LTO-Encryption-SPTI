@@ -283,86 +283,14 @@ main(
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		printf("Parsing Security Compliance page...\n");
-		int pageLength = (psptwb_ex->ucDataBuf[0] << 24) & 0xFF000000 | (psptwb_ex->ucDataBuf[1] << 16) & 0xFF0000 | (psptwb_ex->ucDataBuf[2] << 8) & 0xFF00 | psptwb_ex->ucDataBuf[3] & 0xFF;
-		int currentDescriptorLength = 0;
-		for (int i = 0; i < pageLength; i += currentDescriptorLength)
-		{
-			int descriptorType = (psptwb_ex->ucDataBuf[4 + i + 0] << 8) & 0xFF00 | psptwb_ex->ucDataBuf[4 + i + 1] & 0xFF;
-			char* description;
-			switch (descriptorType)
-			{
-			case 0x0001:
-				description = "Security requirements for cryptographic modules";
-				break;
-			default:
-				description = "Unknown";
-				break;
-			}
-			printf("* Descriptor Type: 0x%04x (%s)\n", descriptorType, description);
-			currentDescriptorLength = (psptwb_ex->ucDataBuf[4 + i + 4] << 24) & 0xFF000000 | (psptwb_ex->ucDataBuf[4 + i + 5] << 16) & 0xFF0000 | (psptwb_ex->ucDataBuf[4 + i + 6] << 8) & 0xFF00 | psptwb_ex->ucDataBuf[4 + i + 7] & 0xFF;
-			if (descriptorType == 0x0001) {
-				UCHAR fipsRevision = psptwb_ex->ucDataBuf[4 + i + 8];
-				switch (fipsRevision) {
-				case 0x32:
-					description = "FIPS 140-2";
-					break;
-				case 0x33:
-					description = "FIPS 140-3";
-					break;
-				default:
-					description = "Unknown";
-				}
-				printf("  * Revision: %s\n", description);
-				printf("  * Overall Security Level: %c\n", psptwb_ex->ucDataBuf[4 + i + 9]);
-				printf("  * Hardware Level: ");
-				char currentChar;
-				BOOL endOfLeadingZeroes = FALSE;
-				for (int j = 0; j < 128; j++)
-				{
-					currentChar = psptwb_ex->ucDataBuf[4 + i + 10 + j];
-					if (currentChar == 0 && !endOfLeadingZeroes) {
-						continue;
-					}
-					else if (currentChar == 0 && endOfLeadingZeroes) {
-						break;
-					}
-					else if (currentChar != 0) {
-						printf("%c", currentChar);
-						if (!endOfLeadingZeroes) {
-							endOfLeadingZeroes = TRUE;
-						}
-					}
-				}
-				printf("\n");
-				printf("  * Software Level: ");
-				endOfLeadingZeroes = FALSE;
-				for (int j = 0; j < 128; j++)
-				{
-					currentChar = psptwb_ex->ucDataBuf[4 + i + 138 + j];
-					if (currentChar == 0 && !endOfLeadingZeroes) {
-						continue;
-					}
-					else if (currentChar == 0 && endOfLeadingZeroes) {
-						break;
-					}
-					else if (currentChar != 0) {
-						printf("%c", currentChar);
-						if (!endOfLeadingZeroes) {
-							endOfLeadingZeroes = TRUE;
-						}
-					}
-				}
-				printf("\n");
-			}
-			i += 8;
-		}
-		printf("\n");
-
 		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
 		{
 			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
 			PrintStatusResultsEx(status, returned, psptwb_ex, length);
+		}
+		else
+		{
+			ParseSecurityCompliance((PSECURITY_PROTOCOL_COMPLIANCE)psptwb_ex->ucDataBuf);
 		}
 	}
 
@@ -1067,6 +995,122 @@ ParseSimpleSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG status, ULO
 	}
 }
 
+/// <summary>
+/// Parses a pointer to a SECURITY_PROTOCOL_COMPLIANCE struct
+/// </summary>
+/// <param name="pSecurityCompliance">A pointer to a SECURITY_PROTOCOL_COMPLIANCE struct</param>
+VOID
+ParseSecurityCompliance(PSECURITY_PROTOCOL_COMPLIANCE pSecurityCompliance)
+{
+	printf("Parsing Security Compliance page...\n");
+	// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+	pSecurityCompliance->PageLength = ntohl(pSecurityCompliance->PageLength);
+
+	UINT32 currentDescriptorTotalLength = 0;
+	for (UINT32 i = 0; i < pSecurityCompliance->PageLength; i += currentDescriptorTotalLength)
+	{
+		// Descriptors are in the Descriptor field. i is the byte offset of the current descriptor in that field.
+		PSECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR currentDescriptor = (PSECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR)(pSecurityCompliance->Descriptor + i);
+		// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+		currentDescriptor->DescriptorType = ntohs(currentDescriptor->DescriptorType);
+		currentDescriptor->DescriptorLength = ntohl(currentDescriptor->DescriptorLength);
+		// The number of bytes from i to the last byte of the current descriptor
+		currentDescriptorTotalLength = FIELD_OFFSET(SECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR, DescriptorInformation[currentDescriptor->DescriptorLength]);
+		PCHAR description;
+		switch (currentDescriptor->DescriptorType)
+		{
+		case SPIN_SECURITY_COMPLIANCE_FIPS140:
+			description = "Security requirements for cryptographic modules";
+			break;
+		default:
+			description = "Unknown";
+			break;
+		}
+		printf("* Descriptor Type: 0x%04x (%s)\n", currentDescriptor->DescriptorType, description);
+		if (currentDescriptor->DescriptorType == SPIN_SECURITY_COMPLIANCE_FIPS140) {
+			PSECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR_INFO_FIPS140 descriptorInfo = (PSECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR_INFO_FIPS140)(currentDescriptor->DescriptorInformation);
+			// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+			currentDescriptor->DescriptorType = ntohs(currentDescriptor->DescriptorType);
+			currentDescriptor->DescriptorLength = ntohl(currentDescriptor->DescriptorLength);
+			switch (descriptorInfo->Revision) {
+			case SPIN_SECURITY_COMPLIANCE_FIPS140_2:
+				description = "FIPS 140-2";
+				break;
+			case SPIN_SECURITY_COMPLIANCE_FIPS140_3:
+				description = "FIPS 140-3";
+				break;
+			default:
+				description = "Unknown";
+			}
+			printf("  * Revision: %s\n", description);
+			printf("  * Overall Security Level: %c\n", descriptorInfo->OverallSecurityLevel);
+			PCHAR hardwareVersion = NullPaddedNullTerminatedToString(sizeof(descriptorInfo->HardwareVersion), descriptorInfo->HardwareVersion);
+			if (hardwareVersion != NULL) {
+				printf("  * Hardware Level: %s\n", hardwareVersion);
+				free(hardwareVersion);
+			}
+			PCHAR softwareVersion = NullPaddedNullTerminatedToString(sizeof(descriptorInfo->SoftwareVersion), descriptorInfo->SoftwareVersion);
+			if (softwareVersion != NULL) {
+				printf("  * Software Level: %s\n", softwareVersion);
+				free(softwareVersion);
+			}
+			PCHAR moduleName = NullPaddedNullTerminatedToString(sizeof(descriptorInfo->ModuleName),descriptorInfo->ModuleName);
+			if (moduleName != NULL) {
+				printf("  * Module Name: %s\n", moduleName);
+				free(moduleName);
+			}
+		}
+	}
+	printf("\n");
+}
+
+/// <summary>
+/// Convert a null-padded, null-terminated string into a null-terminated string
+/// </summary>
+/// <param name="arrayLength">Length of character array</param>
+/// <param name="characterArray">A character array</param>
+/// <returns>A null-terminated string, or NULL</returns>
+PCHAR
+NullPaddedNullTerminatedToString(UINT32 arrayLength, PUCHAR characterArray)
+{
+	// Assume that null terminated strings don't need an extra byte for NUL
+	PCHAR newArray = calloc(arrayLength, sizeof(CHAR));
+	if (newArray == NULL) { return NULL; }
+	BOOL endOfLeadingZeroes = FALSE;
+	char currentChar;
+	UINT32 nextChar = 0;
+	for (UINT32 i = 0; i < arrayLength; i++)
+	{
+		currentChar = characterArray[i];
+		// Assume leading zero bytes are padding
+		if (currentChar == 0 && !endOfLeadingZeroes) {
+			continue;
+		}
+		// If a non-zero byte has occurred and this byte is zero, assume null termination character
+		else if (currentChar == 0 && endOfLeadingZeroes) {
+			return newArray;
+		}
+		// If byte is non-zero, assume it is part of the string
+		else if (currentChar != 0) {
+			newArray[nextChar] = currentChar;
+			nextChar++;
+			if (!endOfLeadingZeroes) {
+				endOfLeadingZeroes = TRUE;
+			}
+		}
+	}
+	return NULL;
+}
+
+/// <summary>
+/// Parse a pointer to a DEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY struct
+/// </summary>
+/// <param name="deviceServerKeyWrappingPublicKey">A pointer to a DEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY struct</param>
+/// <param name="logicalUnitIdentifierLength">The length of the logical unit identifier</param>
+/// <param name="logicalUnitIdentifier">A pointer to a character array containing the logical unit identifier</param>
+/// <param name="wrappedDescriptorsLength">A pointer to an int that will contain the length of the wrapped descriptors</param>
+/// <param name="wrappedDescriptorsPtr">A pointer to a character array that will point to a character array containing the wrapped descriptors</param>
+/// <returns>FALSE if there was a problem with the public key, otherwise TRUE</returns>
 BOOL
 ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY deviceServerKeyWrappingPublicKey, UINT16 logicalUnitIdentifierLength, PUCHAR logicalUnitIdentifier, int* wrappedDescriptorsLength, PUCHAR* wrappedDescriptorsPtr)
 {
