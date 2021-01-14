@@ -229,6 +229,9 @@ ParseSecurityCompliance(PSECURITY_PROTOCOL_COMPLIANCE pSecurityCompliance);
 PCHAR
 NullPaddedNullTerminatedToString(UINT32 arrayLength, PUCHAR characterArray);
 
+VOID
+ParseSupportedSecurityProtocolList(PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA securityProtocolList, PBOOL pCapTapeEncryption);
+
 BOOL
 ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY deviceServerKeyWrappingPublicKey, UINT16 logicalUnitIdentifierLength, PUCHAR logicalUnitIdentifier, int* wrappedDescriptorsLength, PUCHAR* wrappedDescriptors);
 

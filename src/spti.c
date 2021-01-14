@@ -187,6 +187,7 @@ main(
 	UINT16 logicalUnitIdentifierLength = 0;
 	PUCHAR logicalUnitIdentifier = NULL;
 	PDATA_ENCRYPTION_CAPABILITIES encryptionCapabilities = NULL;
+	BOOL capTapeEncryption = FALSE;
 	BOOL capRfc3447 = FALSE;
 	CHAR aesGcmAlgorithmIndex = -1;
 	int wrappedDescriptorsLength = 0;
@@ -274,11 +275,12 @@ main(
 		printf("** Using SCSI_REQUEST_BLOCK - not currently supported by this program. **\n\n");
 	}
 
-	/*
-	* CDB: Security Protocol In, Security Protocol Information, Security Compliance page
-	*/
+
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
+		/*
+		* CDB: Security Protocol In, Security Protocol Information, Security Compliance page
+		*/
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_SECURITY_COMPLIANCE);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
@@ -292,13 +294,11 @@ main(
 		{
 			ParseSecurityCompliance((PSECURITY_PROTOCOL_COMPLIANCE)psptwb_ex->ucDataBuf);
 		}
-	}
 
-	/*
-	* CDB: Security Protocol In, Security Protocol Information, Supported Security Protocol List page
-	*/
-	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	{
+
+		/*
+		* CDB: Security Protocol In, Security Protocol Information, Supported Security Protocol List page
+		*/
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_PROTOCOL_LIST);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
@@ -310,28 +310,10 @@ main(
 		}
 		else
 		{
-			printf("Parsing Supported Security Protocol List page...\n");
-			PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA data = (PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA)psptwb_ex->ucDataBuf;
-			BOOL capTapeEncryption = FALSE;
-			int listCount = data->SupportedSecurityListLength[0] << 8 | data->SupportedSecurityListLength[1];
-			for (int i = 0; i < listCount; i++)
+			ParseSupportedSecurityProtocolList((PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA)psptwb_ex->ucDataBuf, &capTapeEncryption);
+			printf("** This device %s Tape Data Encryption. **\n\n", capTapeEncryption ? "supports" : "doesn't support");
+			if (!capTapeEncryption)
 			{
-				if (data->SupportedSecurityProtocol[i] == SECURITY_PROTOCOL_TAPE) {
-					capTapeEncryption = TRUE;
-				}
-				printf("* Supported Security Protocol: 0x%02X (%s)\n",
-					data->SupportedSecurityProtocol[i],
-					GetSecurityProtocolDescription(data->SupportedSecurityProtocol[i])
-				);
-			}
-			printf("\n");
-			if (capTapeEncryption)
-			{
-				printf("** This device supports Tape Data Encryption. **\n\n");
-			}
-			else
-			{
-				fprintf(stderr, "** This device doesn't support Tape Data Encryption. **\n");
 				goto Cleanup;
 			}
 		}
@@ -1077,7 +1059,7 @@ NullPaddedNullTerminatedToString(UINT32 arrayLength, PUCHAR characterArray)
 	PCHAR newArray = calloc(arrayLength, sizeof(CHAR));
 	if (newArray == NULL) { return NULL; }
 	BOOL endOfLeadingZeroes = FALSE;
-	char currentChar;
+	CHAR currentChar;
 	UINT32 nextChar = 0;
 	for (UINT32 i = 0; i < arrayLength; i++)
 	{
@@ -1100,6 +1082,25 @@ NullPaddedNullTerminatedToString(UINT32 arrayLength, PUCHAR characterArray)
 		}
 	}
 	return NULL;
+}
+
+VOID
+ParseSupportedSecurityProtocolList(PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA securityProtocolList, PBOOL pCapTapeEncryption)
+{
+	printf("Parsing Supported Security Protocol List page...\n");
+	*pCapTapeEncryption = FALSE;
+	int listCount = securityProtocolList->SupportedSecurityListLength[0] << 8 | securityProtocolList->SupportedSecurityListLength[1];
+	for (int i = 0; i < listCount; i++)
+	{
+		if (securityProtocolList->SupportedSecurityProtocol[i] == SECURITY_PROTOCOL_TAPE) {
+			*pCapTapeEncryption = TRUE;
+		}
+		printf("* Supported Security Protocol: 0x%02X (%s)\n",
+			securityProtocolList->SupportedSecurityProtocol[i],
+			GetSecurityProtocolDescription(securityProtocolList->SupportedSecurityProtocol[i])
+		);
+	}
+	printf("\n");
 }
 
 /// <summary>
