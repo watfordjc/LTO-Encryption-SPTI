@@ -232,11 +232,14 @@ NullPaddedNullTerminatedToString(UINT32 arrayLength, PUCHAR characterArray);
 VOID
 ParseSupportedSecurityProtocolList(PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA securityProtocolList, PBOOL pCapTapeEncryption);
 
+VOID
+ParseDataEncryptionCapabilities(PDATA_ENCRYPTION_CAPABILITIES pEncryptionCapabilities, PDATA_ENCRYPTION_CAPABILITIES* encryptionCapabilitiesPtr, PINT16 pAesGcmAlgorithmIndex);
+
 BOOL
 ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY deviceServerKeyWrappingPublicKey, UINT16 logicalUnitIdentifierLength, PUCHAR logicalUnitIdentifier, int* wrappedDescriptorsLength, PUCHAR* wrappedDescriptors);
 
 VOID
-ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS pNextBlockStatus, CHAR aesGcmAlgorithmIndex);
+ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS pNextBlockStatus, INT16 aesGcmAlgorithmIndex);
 
 UCHAR
 GetCdbLength(UCHAR groupCode);

@@ -189,7 +189,7 @@ main(
 	PDATA_ENCRYPTION_CAPABILITIES encryptionCapabilities = NULL;
 	BOOL capTapeEncryption = FALSE;
 	BOOL capRfc3447 = FALSE;
-	CHAR aesGcmAlgorithmIndex = -1;
+	INT16 aesGcmAlgorithmIndex = -1; // Index is 8 bytes unsigned (UCHAR) in SCSI, extra byte is used for status
 	int wrappedDescriptorsLength = 0;
 	PUCHAR wrappedDescriptors = NULL;
 	int keyType = -1;
@@ -317,13 +317,11 @@ main(
 				goto Cleanup;
 			}
 		}
-	}
 
-	/*
-	* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Capabilities page
-	*/
-	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	{
+
+		/*
+		* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Capabilities page
+		*/
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_CAPABILITIES);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
@@ -333,68 +331,14 @@ main(
 			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
 			PrintStatusResultsEx(status, returned, psptwb_ex, length);
 		}
-		int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
-		if (pageCode == SPIN_TAPE_ENCRYPTION_CAPABILITIES)
+		else
 		{
-			// Copy Data Encryption Capabilities page to a new struct
-			encryptionCapabilities = calloc(1, sizeof(DATA_ENCRYPTION_CAPABILITIES));
-			memcpy(encryptionCapabilities, psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
-			// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
-			encryptionCapabilities->PageCode = ntohs(encryptionCapabilities->PageCode);
-			encryptionCapabilities->PageLength = ntohs(encryptionCapabilities->PageLength);
-			encryptionCapabilities->DescriptorLength = ntohs(encryptionCapabilities->DescriptorLength);
-			encryptionCapabilities->UnauthKadMaxLength = ntohs(encryptionCapabilities->UnauthKadMaxLength);
-			encryptionCapabilities->AuthKadMaxLength = ntohs(encryptionCapabilities->AuthKadMaxLength);
-			encryptionCapabilities->KeySize = ntohs(encryptionCapabilities->KeySize);
-			encryptionCapabilities->MaximumSupplementalDecryptionKeyCount = ntohs(encryptionCapabilities->MaximumSupplementalDecryptionKeyCount);
-			encryptionCapabilities->AlgorithmCode = ntohl(encryptionCapabilities->AlgorithmCode);
-			printf("Parsing Data Encryption Capabilities page...\n");
-			printf("Page length: %d bytes\n", encryptionCapabilities->PageLength);
-			printf("* External Data Encryption Capable (EXTDECC): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->ExternalDataEncryptionCapable == 0b10));
-			printf("* Configuration Prevented (CFG_P): %s\n", CfgPCapableStrings[encryptionCapabilities->ConfigurationPrevented]);
-			printf("* Algorithm index: 0x%02X\n", encryptionCapabilities->AlgorithmIndex);
-			printf("  * Descriptor Length: %d bytes\n", encryptionCapabilities->DescriptorLength);
-			printf("  * Algorithm Valid For Mounted Volume (AVFMV): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->AlgorithmValidForMountedVolume));
-			printf("  * Supplemental Decryption Key Capable (SDK_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->SupplementalDecryptionKeyCapable));
-			printf("  * Message Authentication Code Capable (MAC_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->MacKadCapable));
-			printf("  * Distinguish Encrypted Logical Block Capable (DELB_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->DistinguishEncryptedLogicalBlockCapable));
-			printf("  * Decryption Capable (Decrypt_C): %s\n", EncryptionCapableStrings[encryptionCapabilities->DecryptCapable]);
-			printf("  * Encryption Capable (Encrypt_C): %s\n", EncryptionCapableStrings[encryptionCapabilities->EncryptCapable]);
-			printf("  * Algorithm Valid For Current Logical Position (AVFCLP): %s\n", AvfclpCapableStrings[encryptionCapabilities->AlgorithmValidForCurrentLogicalPosition]);
-			printf("  * Nonce value descriptor capable (NONCE_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->NonceKadCapable == 0b11));
-			printf("  * KAD Format Capable (KADF_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->KadFormatCapable));
-			printf("  * Volume Contains Encrypted Logical Blocks Capable (VCELB_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->VolumeContainsEncryptedLogicalBlocksCapable));
-			printf("  * Unauthenticated KAD Fixed Length (UKADF): %s\n", (encryptionCapabilities->UnauthKadFixedLength ? "Max UKAD Bytes" : "1 Byte to Max UKAD Bytes"));
-			printf("  * Authenticated KAD Fixed Length (AKADF): %s\n", (encryptionCapabilities->AuthKadFixedLength ? "Max AKAD Bytes" : "1 Byte to Max AKAD Bytes"));
-			printf("  * Maximum Unauthenticated Key-Associated Data Bytes: %d\n", encryptionCapabilities->UnauthKadMaxLength);
-			printf("  * Maximum Authenticated Key-Associated Data Bytes: %d\n", encryptionCapabilities->AuthKadMaxLength);
-			printf("  * Key Size: %d bytes (%d-bit)\n", encryptionCapabilities->KeySize, encryptionCapabilities->KeySize * 8);
-			printf("  * Decryption KAD Capability: %s\n", DkadCapableStrings[encryptionCapabilities->DecryptionKadCapable]);
-			printf("  * External Encryption Mode Control Capable (EEMC_C): %s\n", EemcCapableStrings[encryptionCapabilities->ExternalEncryptionModeControlCapable]);
-			if (encryptionCapabilities->RawDecryptionModeControlCapabilities == 0x4)
+			int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
+			if (pageCode == SPIN_TAPE_ENCRYPTION_CAPABILITIES)
 			{
-				printf("  * Raw Decryption Mode Control (RDMC_C): Raw decryption not allowed by default\n");
+				ParseDataEncryptionCapabilities((PDATA_ENCRYPTION_CAPABILITIES)psptwb_ex->ucDataBuf, &encryptionCapabilities, &aesGcmAlgorithmIndex);
 			}
-			else
-			{
-				printf("  * Raw Decryption Mode Control (RDMC_C): 0x%02X\n", encryptionCapabilities->RawDecryptionModeControlCapabilities);
-			}
-			printf("  * Encryption Algorithm Records Encryption Mode (EAREM): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->EncryptionAlgorithmRecordsEncryptionMode));
-			printf("  * Maximum number of supplemental decryption keys: %d\n", encryptionCapabilities->MaximumSupplementalDecryptionKeyCount);
-			if (encryptionCapabilities->AlgorithmCode == SPIN_TAPE_ALGORITHM_AESGCM)
-			{
-				printf("  * Algorithm: AES-GCM (AES%d-GCM)\n", encryptionCapabilities->KeySize * 8);
-				aesGcmAlgorithmIndex = encryptionCapabilities->AlgorithmIndex;
-			}
-			else
-			{
-				printf("  * Unknown Algorithm: 0x%08X\n", encryptionCapabilities->AlgorithmCode);
-			}
-
-			printf("\n");
 		}
-
-		//  PrintDataBuffer(psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
 	}
 
 	/*
@@ -676,7 +620,7 @@ main(
 		//keyHeader.CKORL = 0b1;
 		keyHeader.EncryptionMode = 0x2;
 		keyHeader.DecriptionMode = 0x2;
-		keyHeader.AlgorithmIndex = aesGcmAlgorithmIndex;
+		keyHeader.AlgorithmIndex = (UCHAR)aesGcmAlgorithmIndex;
 		keyHeader.KeyFormat = (UCHAR)keyFormat;
 		if (kad != NULL) {
 			keyHeader.KADFormat = SPOUT_TAPE_KAD_FORMAT_ASCII;
@@ -797,7 +741,7 @@ main(
 		//plainKey->CKORL = 0b1;
 		plainKey->EncryptionMode = noKey ? 0x0 : 0x2;
 		plainKey->DecriptionMode = noKey ? 0x0 : 0x2;
-		plainKey->AlgorithmIndex = aesGcmAlgorithmIndex;
+		plainKey->AlgorithmIndex = (UCHAR)aesGcmAlgorithmIndex;
 		if (keyFormat >= 0)
 		{
 			plainKey->KeyFormat = (UCHAR)keyFormat;
@@ -1088,6 +1032,7 @@ VOID
 ParseSupportedSecurityProtocolList(PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA securityProtocolList, PBOOL pCapTapeEncryption)
 {
 	printf("Parsing Supported Security Protocol List page...\n");
+	// Unset existing tape encryption capability value
 	*pCapTapeEncryption = FALSE;
 	int listCount = securityProtocolList->SupportedSecurityListLength[0] << 8 | securityProtocolList->SupportedSecurityListLength[1];
 	for (int i = 0; i < listCount; i++)
@@ -1099,6 +1044,71 @@ ParseSupportedSecurityProtocolList(PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA 
 			securityProtocolList->SupportedSecurityProtocol[i],
 			GetSecurityProtocolDescription(securityProtocolList->SupportedSecurityProtocol[i])
 		);
+	}
+	printf("\n");
+}
+
+VOID
+ParseDataEncryptionCapabilities(PDATA_ENCRYPTION_CAPABILITIES pBuffer, PDATA_ENCRYPTION_CAPABILITIES* ppEncryptionCapabilities, PINT16 pAesGcmAlgorithmIndex)
+{
+	printf("Parsing Data Encryption Capabilities page...\n");
+	// Unset existing AES256-GCM algorithm index value
+	*pAesGcmAlgorithmIndex = -1;
+	// Allocate memory to store Data Encryption Capabilities page
+	PDATA_ENCRYPTION_CAPABILITIES encryptionCapabilities = calloc(1, sizeof(DATA_ENCRYPTION_CAPABILITIES));
+	// Update pointer to new struct
+	*ppEncryptionCapabilities = encryptionCapabilities;
+	// Copy buffer to new struct
+	memcpy(encryptionCapabilities, pBuffer, sizeof(DATA_ENCRYPTION_CAPABILITIES));
+	// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+	encryptionCapabilities->PageCode = ntohs(encryptionCapabilities->PageCode);
+	encryptionCapabilities->PageLength = ntohs(encryptionCapabilities->PageLength);
+	encryptionCapabilities->DescriptorLength = ntohs(encryptionCapabilities->DescriptorLength);
+	encryptionCapabilities->UnauthKadMaxLength = ntohs(encryptionCapabilities->UnauthKadMaxLength);
+	encryptionCapabilities->AuthKadMaxLength = ntohs(encryptionCapabilities->AuthKadMaxLength);
+	encryptionCapabilities->KeySize = ntohs(encryptionCapabilities->KeySize);
+	encryptionCapabilities->MaximumSupplementalDecryptionKeyCount = ntohs(encryptionCapabilities->MaximumSupplementalDecryptionKeyCount);
+	encryptionCapabilities->AlgorithmCode = ntohl(encryptionCapabilities->AlgorithmCode);
+	printf("Page length: %d bytes\n", encryptionCapabilities->PageLength);
+	printf("* External Data Encryption Capable (EXTDECC): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->ExternalDataEncryptionCapable == 0b10));
+	printf("* Configuration Prevented (CFG_P): %s\n", CfgPCapableStrings[encryptionCapabilities->ConfigurationPrevented]);
+	printf("* Algorithm index: 0x%02X\n", encryptionCapabilities->AlgorithmIndex);
+	printf("  * Descriptor Length: %d bytes\n", encryptionCapabilities->DescriptorLength);
+	printf("  * Algorithm Valid For Mounted Volume (AVFMV): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->AlgorithmValidForMountedVolume));
+	printf("  * Supplemental Decryption Key Capable (SDK_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->SupplementalDecryptionKeyCapable));
+	printf("  * Message Authentication Code Capable (MAC_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->MacKadCapable));
+	printf("  * Distinguish Encrypted Logical Block Capable (DELB_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->DistinguishEncryptedLogicalBlockCapable));
+	printf("  * Decryption Capable (Decrypt_C): %s\n", EncryptionCapableStrings[encryptionCapabilities->DecryptCapable]);
+	printf("  * Encryption Capable (Encrypt_C): %s\n", EncryptionCapableStrings[encryptionCapabilities->EncryptCapable]);
+	printf("  * Algorithm Valid For Current Logical Position (AVFCLP): %s\n", AvfclpCapableStrings[encryptionCapabilities->AlgorithmValidForCurrentLogicalPosition]);
+	printf("  * Nonce value descriptor capable (NONCE_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->NonceKadCapable == 0b11));
+	printf("  * KAD Format Capable (KADF_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->KadFormatCapable));
+	printf("  * Volume Contains Encrypted Logical Blocks Capable (VCELB_C): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->VolumeContainsEncryptedLogicalBlocksCapable));
+	printf("  * Unauthenticated KAD Fixed Length (UKADF): %s\n", (encryptionCapabilities->UnauthKadFixedLength ? "Max UKAD Bytes" : "1 Byte to Max UKAD Bytes"));
+	printf("  * Authenticated KAD Fixed Length (AKADF): %s\n", (encryptionCapabilities->AuthKadFixedLength ? "Max AKAD Bytes" : "1 Byte to Max AKAD Bytes"));
+	printf("  * Maximum Unauthenticated Key-Associated Data Bytes: %d\n", encryptionCapabilities->UnauthKadMaxLength);
+	printf("  * Maximum Authenticated Key-Associated Data Bytes: %d\n", encryptionCapabilities->AuthKadMaxLength);
+	printf("  * Key Size: %d bytes (%d-bit)\n", encryptionCapabilities->KeySize, encryptionCapabilities->KeySize * 8);
+	printf("  * Decryption KAD Capability: %s\n", DkadCapableStrings[encryptionCapabilities->DecryptionKadCapable]);
+	printf("  * External Encryption Mode Control Capable (EEMC_C): %s\n", EemcCapableStrings[encryptionCapabilities->ExternalEncryptionModeControlCapable]);
+	if (encryptionCapabilities->RawDecryptionModeControlCapabilities == 0x4)
+	{
+		printf("  * Raw Decryption Mode Control (RDMC_C): Raw decryption not allowed by default\n");
+	}
+	else
+	{
+		printf("  * Raw Decryption Mode Control (RDMC_C): 0x%02X\n", encryptionCapabilities->RawDecryptionModeControlCapabilities);
+	}
+	printf("  * Encryption Algorithm Records Encryption Mode (EAREM): %s\n", BOOLEAN_TO_STRING(encryptionCapabilities->EncryptionAlgorithmRecordsEncryptionMode));
+	printf("  * Maximum number of supplemental decryption keys: %d\n", encryptionCapabilities->MaximumSupplementalDecryptionKeyCount);
+	if (encryptionCapabilities->AlgorithmCode == SPIN_TAPE_ALGORITHM_AESGCM)
+	{
+		printf("  * Algorithm: AES-GCM (AES%d-GCM)\n", encryptionCapabilities->KeySize * 8);
+		*pAesGcmAlgorithmIndex = encryptionCapabilities->AlgorithmIndex;
+	}
+	else
+	{
+		printf("  * Unknown Algorithm: 0x%08X\n", encryptionCapabilities->AlgorithmCode);
 	}
 	printf("\n");
 }
@@ -1277,7 +1287,7 @@ ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY dev
 /// <param name="pNextBlockStatus">A pointer to a NEXT_BLOCK_ENCRYPTION_STATUS struct</param>
 /// <param name="aesGcmAlgorithmIndex">The drive's encryption algorithm index for AES256-GCM</param>
 VOID
-ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, CHAR aesGcmAlgorithmIndex)
+ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, INT16 aesGcmAlgorithmIndex)
 {
 	// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
 	nextBlockStatus->PageCode = ntohs(nextBlockStatus->PageCode);
