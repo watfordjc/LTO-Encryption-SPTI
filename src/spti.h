@@ -214,6 +214,37 @@ typedef struct _WRAPPED_KEY_DESCRIPTOR {
 } WRAPPED_KEY_DESCRIPTOR, *PWRAPPED_KEY_DESCRIPTOR;
 #pragma pack(pop)
 
+#pragma pack(push)
+#pragma pack(1)
+typedef struct _SENSE_INFO {
+    UCHAR ErrorCode : 7; // LSb of [0]
+    UCHAR Valid : 1; // MSb of [0]
+    UCHAR SegmentNumber;
+    UCHAR SenseKey : 4; // LSb of [3]
+    UCHAR Reserved1 : 1;
+    UCHAR InvalidLengthIndicator : 1;
+    UCHAR EndOfMedium : 1;
+    UCHAR Mark : 1; // MSb of [3]
+    UCHAR InformationBytes[4];
+    UCHAR AdditionalSenseLength;
+    UCHAR CommandSpecificInformationBytes[4];
+    UCHAR AdditionalSenseCode;
+    UCHAR AdditionalSenseCodeQualifier;
+    UCHAR FieldReplaceableUnitCode;
+    UCHAR BitPointer : 3; // LSb of [15]
+    UCHAR BitPointerValid : 1;
+    UCHAR Reserved2 : 2;
+    UCHAR CommandData : 1;
+    UCHAR SenseKeySpecificValid : 1; // MSb of [15]
+    UCHAR FieldPointer[2];
+    UCHAR Reserved3[3];
+    UCHAR Reserved4 : 3; // LSb of [21]
+    UCHAR CleanNeeded : 1;
+    UCHAR Reserved5 : 4; // MSb of [22]
+    UCHAR Padding[2];
+} SENSE_INFO, *PSENSE_INFO;
+#pragma pack(pop)
+
 ULONG
 CreateSecurityProtocolInSrb(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR securityProtocol, UCHAR pageCode);
 
@@ -233,16 +264,16 @@ VOID
 ParseSupportedSecurityProtocolList(PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA securityProtocolList, PBOOL pCapTapeEncryption);
 
 VOID
-ParseDataEncryptionCapabilities(PDATA_ENCRYPTION_CAPABILITIES pEncryptionCapabilities, PDATA_ENCRYPTION_CAPABILITIES* encryptionCapabilitiesPtr, PINT16 pAesGcmAlgorithmIndex);
+ParseDataEncryptionCapabilities(PDATA_ENCRYPTION_CAPABILITIES pBuffer, PDATA_ENCRYPTION_CAPABILITIES* ppEncryptionCapabilities, PINT16 pAesGcmAlgorithmIndex);
 
 BOOL
 ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY deviceServerKeyWrappingPublicKey, UINT16 logicalUnitIdentifierLength, PUCHAR logicalUnitIdentifier, int* wrappedDescriptorsLength, PUCHAR* wrappedDescriptors);
 
 VOID
-ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS pNextBlockStatus, INT16 aesGcmAlgorithmIndex);
+ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, INT16 aesGcmAlgorithmIndex);
 
 UCHAR
-GetCdbLength(UCHAR groupCode);
+GetCdbLength(UCHAR opCode);
 
 ULONG
 ResetSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR opCode);
@@ -263,16 +294,16 @@ VOID
 PrintInquiryData(PVOID);
 
 VOID
-PrintStatusResults(BOOL, DWORD, PSCSI_PASS_THROUGH_WITH_BUFFERS, ULONG);
-
-VOID
-PrintSenseInfo(PSCSI_PASS_THROUGH_WITH_BUFFERS);
-
-VOID
 PrintStatusResultsEx(BOOL, DWORD, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX, ULONG);
 
 VOID
 PrintSenseInfoEx(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX);
+
+BOOL
+CheckStatus(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, BOOL status, ULONG length, DWORD returned);
+
+BOOL
+WaitForSenseChange(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex);
 
 _Success_(return)
 BOOL

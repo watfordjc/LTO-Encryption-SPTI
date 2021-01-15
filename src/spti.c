@@ -141,6 +141,25 @@ LPCSTR NextBlockEncryptionStatusStrings[] = {
 };
 #define NUMBER_OF_NEXT_BLOCK_ENCRYPTION_STATUS_STRINGS (sizeof(NextBlockEncryptionStatusStrings)/sizeof(NextBlockEncryptionStatusStrings[0]))
 
+LPCSTR SenseKeyStrings[] = {
+	"NO SENSE",
+	"RECOVERED ERROR",
+	"NOT READY",
+	"MEDIUM ERROR",
+	"HARDWARE ERROR",
+	"ILLEGAL REQUEST",
+	"UNIT ATTENTION",
+	"DATA PROTECT",
+	"BLANK CHECK",
+	"VENDOR SPECIFIC",
+	"COPY ABORTED",
+	"ABORTED COMMAND",
+	"EQUAL",
+	"VOLUME OVERFLOW",
+	"MISCOMPARE",
+	"UNKNOWN"
+};
+
 /// <summary>
 /// Uses SCSI Pass Through Interface (SPTI) to communicate with an LTO tape drive
 /// </summary>
@@ -285,12 +304,7 @@ main(
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
-		{
-			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, psptwb_ex, length);
-		}
-		else
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
 			ParseSecurityCompliance((PSECURITY_PROTOCOL_COMPLIANCE)psptwb_ex->ucDataBuf);
 		}
@@ -303,12 +317,7 @@ main(
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
-		{
-			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, psptwb_ex, length);
-		}
-		else
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
 			ParseSupportedSecurityProtocolList((PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA)psptwb_ex->ucDataBuf, &capTapeEncryption);
 			printf("** This device %s Tape Data Encryption. **\n\n", capTapeEncryption ? "supports" : "doesn't support");
@@ -326,12 +335,7 @@ main(
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
-		{
-			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, psptwb_ex, length);
-		}
-		else
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
 			int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 			if (pageCode == SPIN_TAPE_ENCRYPTION_CAPABILITIES)
@@ -352,11 +356,8 @@ main(
 		psptwb_ex->spt.Cdb[2] = VPD_DEVICE_IDENTIFIERS;
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
-		{
-			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, psptwb_ex, length);
-		}
+		CheckStatus(fileHandle, psptwb_ex, status, returned, length);
+
 		int pageCode = psptwb_ex->ucDataBuf[1];
 		if (pageCode == VPD_DEVICE_IDENTIFIERS) {
 
@@ -485,11 +486,8 @@ main(
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
-		{
-			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, psptwb_ex, length);
-		}
+		CheckStatus(fileHandle, psptwb_ex, status, returned, length);
+
 		int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 		if (pageCode == SPIN_TAPE_SUPPORTED_KEY_FORMATS)
 		{
@@ -538,14 +536,12 @@ main(
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
-			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, psptwb_ex, length);
-		}
-		pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
-		if (pageCode == SPIN_TAPE_ENCRYPTION_STATUS) {
-			ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Data Encryption Status");
+			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
+			if (pageCode == SPIN_TAPE_ENCRYPTION_STATUS) {
+				ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Data Encryption Status");
+			}
 		}
 
 
@@ -560,15 +556,13 @@ main(
 			if (length == 0) { goto Cleanup; }
 			status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-			if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
+			if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 			{
-				printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
-				PrintStatusResultsEx(status, returned, psptwb_ex, length);
-			}
-			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
-			if (pageCode == SPIN_TAPE_WRAPPED_PUBKEY)
-			{
-				ParseDeviceServerKeyWrappingPublicKey((PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY)psptwb_ex->ucDataBuf, logicalUnitIdentifierLength, logicalUnitIdentifier, &wrappedDescriptorsLength, &wrappedDescriptors);
+				pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
+				if (pageCode == SPIN_TAPE_WRAPPED_PUBKEY)
+				{
+					ParseDeviceServerKeyWrappingPublicKey((PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY)psptwb_ex->ucDataBuf, logicalUnitIdentifierLength, logicalUnitIdentifier, &wrappedDescriptorsLength, &wrappedDescriptors);
+				}
 			}
 		}
 	}
@@ -677,21 +671,14 @@ main(
 			free(kad);
 		}
 
+		printf("SRB length: %d (0x%02x)\n", length, length);
 		printf("Buffer length: %d (0x%02x)\n\n", allocationLength, allocationLength);
-		printf("SRB length: %d (0x%02x)\n\n", length, length);
-
-		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-
 		printf("Buffer:\n\n");
 		PrintDataBuffer((PUCHAR)psptwb_ex->ucDataBuf, psptwb_ex->spt.DataOutTransferLength);
 
-		//PrintSenseInfo(&sptdwb_ex.sptd);
-		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
-		{
-			printf("Status: 0x%02X, SCSI Status: 0x%02x\n\n", status, psptwb_ex->spt.ScsiStatus);
-		}
-		PrintStatusResultsEx(status, returned, psptwb_ex, returned);
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
+		CheckStatus(fileHandle, psptwb_ex, status, returned, length);
 	}
 
 	/*
@@ -791,12 +778,7 @@ main(
 		printf("Buffer:\n\n");
 		PrintDataBuffer((PUCHAR)psptwb_ex->ucDataBuf, psptwb_ex->spt.DataOutTransferLength);
 
-		//PrintSenseInfo(&sptdwb_ex.sptd);
-		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
-		{
-			printf("Status: 0x%02X, SCSI Status: 0x%02x\n\n", status, psptwb_ex->spt.ScsiStatus);
-		}
-		PrintStatusResultsEx(status, returned, psptwb_ex, returned);
+		CheckStatus(fileHandle, psptwb_ex, status, returned, length);
 	}
 
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
@@ -805,18 +787,19 @@ main(
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-		ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Data Encryption Status");
+
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		{
+			ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Data Encryption Status");
+		}
+
 
 		// CDB: Security Protocol In, Tape Data Encryption Security Protocol, Next Block Encryption Status page
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-		if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
-		{
-			printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
-			PrintStatusResultsEx(status, returned, psptwb_ex, length);
-		}
-		else
+
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
 			int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 			if (pageCode == SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS) {
@@ -828,13 +811,22 @@ main(
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_CERTIFICATE_DATA);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-		ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Certificate Data");
+
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		{
+			ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Certificate Data");
+		}
+
 
 		// CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Management Capabilities page
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_MANAGEMENT_CAPABILITIES);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-		ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Data Encryption Management Capabilities");
+
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		{
+			ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Data Encryption Management Capabilities");
+		}
 	}
 
 Cleanup:
@@ -916,7 +908,7 @@ ParseSimpleSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG status, ULO
 
 	if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
 	{
-		printf("Status: 0x%02X\n\n", psptwb_ex->spt.ScsiStatus);
+		printf("Status: 0x%02X\n", psptwb_ex->spt.ScsiStatus);
 		PrintStatusResultsEx(status, returned, psptwb_ex, length);
 	}
 }
@@ -1028,6 +1020,11 @@ NullPaddedNullTerminatedToString(UINT32 arrayLength, PUCHAR characterArray)
 	return NULL;
 }
 
+/// <summary>
+/// Parse a pointer to a SUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA struct
+/// </summary>
+/// <param name="securityProtocolList">Pointer to a SUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA struct</param>
+/// <param name="pCapTapeEncryption">Pointer to a boolean to store Tape Encryption support</param>
 VOID
 ParseSupportedSecurityProtocolList(PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA securityProtocolList, PBOOL pCapTapeEncryption)
 {
@@ -1048,6 +1045,12 @@ ParseSupportedSecurityProtocolList(PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA 
 	printf("\n");
 }
 
+/// <summary>
+/// Parse a pointer to a DATA_ENCRYPTION_CAPABILITIES struct
+/// </summary>
+/// <param name="pBuffer">A pointer to a DATA_ENCRYPTION_CAPABILITIES struct</param>
+/// <param name="ppEncryptionCapabilities">A pointer to a pointer to a DATA_ENCRYPTION_CAPABILITIES struct for storing parsed data</param>
+/// <param name="pAesGcmAlgorithmIndex">A pointer to a short for storing AES256-GCM algorithm index if discovered</param>
 VOID
 ParseDataEncryptionCapabilities(PDATA_ENCRYPTION_CAPABILITIES pBuffer, PDATA_ENCRYPTION_CAPABILITIES* ppEncryptionCapabilities, PINT16 pAesGcmAlgorithmIndex)
 {
@@ -1442,7 +1445,7 @@ ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength)
 	psptwb_ex->spt.DataOutTransferLength = 4 << 8;
 	psptwb_ex->spt.DataInTransferLength = 0;
 	psptwb_ex->spt.DataDirection = SCSI_IOCTL_DATA_OUT;
-	psptwb_ex->spt.TimeOutValue = 20;
+	psptwb_ex->spt.TimeOutValue = 2;
 	psptwb_ex->spt.StorAddressOffset =
 		offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX, StorAddress);
 	psptwb_ex->StorAddress.Type = STOR_ADDRESS_TYPE_BTL8;
@@ -1682,47 +1685,76 @@ PrintDeviceDescriptor(PSTORAGE_DEVICE_DESCRIPTOR DeviceDescriptor)
 	printf("\n\n");
 }
 
-VOID
-PrintStatusResults(
-	BOOL status, DWORD returned, PSCSI_PASS_THROUGH_WITH_BUFFERS psptwb,
-	ULONG length)
-{
-	ULONG errorCode;
 
-	if (!status) {
-		fprintf(stderr, "Error: %d  ",
-			errorCode = GetLastError());
-		PrintError(errorCode);
-		return;
+/// <summary>
+/// Checks the status of an SRB/CDB is good
+/// </summary>
+/// <param name="fileHandle">Open HANDLE to the device</param>
+/// <param name="psptwb_ex">Pointer to a SCSI_PASS_THROUGH_WITH_BUFFERS_EX struct (wrapper of SCSI_PASS_THROUGH_EX)</param>
+/// <param name="status">Status returned from DeviceIoControl</param>
+/// <param name="returned">Length of returned data in bytes</param>
+/// <param name="length">Length of the SRB in bytes</param>
+/// <returns>TRUE if good, FALSE if bad</returns>
+BOOL
+CheckStatus(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, BOOL status, ULONG length, DWORD returned)
+{
+	if (status && psptwb_ex->spt.ScsiStatus == SCSISTAT_GOOD)
+	{
+		return TRUE;
 	}
-	if (psptwb->spt.ScsiStatus) {
-		PrintSenseInfo(psptwb);
-		return;
+	else if (!status && psptwb_ex->spt.ScsiStatus == SCSISTAT_GOOD)
+	{
+		return WaitForSenseChange(fileHandle, psptwb_ex);
 	}
-	else {
-		printf("Scsi status: %02Xh, Bytes returned: %Xh, ",
-			psptwb->spt.ScsiStatus, returned);
-		printf("Data buffer length: %Xh\n\n\n",
-			psptwb->spt.DataTransferLength);
-		PrintDataBuffer((PUCHAR)psptwb, length);
+	else if (!status || psptwb_ex->spt.ScsiStatus != SCSISTAT_GOOD)
+	{
+		printf("Status: 0x%02X, SCSI Status: 0x%02x\n", status, psptwb_ex->spt.ScsiStatus);
+		PrintStatusResultsEx(status, returned, psptwb_ex, length);
+		return FALSE;
+	}
+	else
+	{
+		printf("Unreachable?\n");
+		return FALSE;
 	}
 }
 
-VOID
-PrintSenseInfo(PSCSI_PASS_THROUGH_WITH_BUFFERS psptwb)
+/// <summary>
+/// Waits for sense key to change from NO SENSE (0x0)
+/// </summary>
+/// <param name="fileHandle">Open HANDLE to the device</param>
+/// <param name="psptwb_ex">Pointer to a SCSI_PASS_THROUGH_WITH_BUFFERS_EX struct (wrapper of SCSI_PASS_THROUGH_EX)</param>
+/// <returns>TRUE on sense key change, FALSE if it didn't change before reaching maximum retries</returns>
+BOOL
+WaitForSenseChange(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex)
 {
-	UCHAR i;
+	BOOL status;
+	ULONG length;
+	DWORD returned;
+	printf("Waiting for sense change...");
 
-	printf("Scsi status: %02Xh\n\n", psptwb->spt.ScsiStatus);
-	if (psptwb->spt.SenseInfoLength == 0) {
-		return;
+	PSENSE_INFO senseInfo = (PSENSE_INFO)psptwb_ex->ucSenseBuf;
+	UCHAR retriesRemaining = 10;
+	while (senseInfo->SenseKey == 0 && retriesRemaining > 0)
+	{
+		length = ResetSrbIn(psptwb_ex, SCSIOP_REQUEST_SENSE);
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+		printf(".");
+		senseInfo = (PSENSE_INFO)psptwb_ex->ucSenseBuf;
+		retriesRemaining--;
+		Sleep(1000);
 	}
-	printf("Sense Info -- consult SCSI spec for details\n");
-	printf("-------------------------------------------------------------\n");
-	for (i = 0; i < psptwb->spt.SenseInfoLength; i++) {
-		printf("%02X ", psptwb->ucSenseBuf[i]);
+	printf("\n");
+	if (senseInfo->SenseKey != 0)
+	{
+		PrintSenseInfoEx(psptwb_ex);
+		return TRUE;
 	}
-	printf("\n\n");
+	else
+	{
+		printf("Giving up.\n");
+		return FALSE;
+	}
 }
 
 VOID
@@ -1756,17 +1788,50 @@ PrintStatusResultsEx(
 VOID
 PrintSenseInfoEx(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex)
 {
-	ULONG i;
-
-	printf("Scsi status: %02Xh\n\n", psptwb_ex->spt.ScsiStatus);
+	printf("* Scsi status: %02Xh\n", psptwb_ex->spt.ScsiStatus);
 	if (psptwb_ex->spt.SenseInfoLength == 0) {
 		return;
 	}
-	printf("Sense Info -- consult SCSI spec for details\n");
-	printf("-------------------------------------------------------------\n");
-	for (i = 0; i < psptwb_ex->spt.SenseInfoLength; i++) {
-		printf("%02X ", psptwb_ex->ucSenseBuf[i]);
+	printf("* Sense Info -- consult SCSI spec for details\n");
+	PSENSE_INFO senseInfo = (PSENSE_INFO)psptwb_ex->ucSenseBuf;
+	PCHAR description = NULL;
+	switch (senseInfo->ErrorCode)
+	{
+	case 0x70:
+		description = "Current";
+		break;
+	case 0x71:
+		description = "Deferred";
+		break;
+	default:
+		description = "Unknown";
+		break;
 	}
+	printf("  * Error Code: 0x%02X (%s)\n", senseInfo->ErrorCode, description);
+	printf("  * Sense Key: 0x%02X (%s)\n", senseInfo->SenseKey, SenseKeyStrings[senseInfo->SenseKey]);
+	printf("  * ASC/ASCQ: 0x%02X/0x%02X\n", senseInfo->AdditionalSenseCode, senseInfo->AdditionalSenseCodeQualifier);
+	if (senseInfo->SenseKeySpecificValid == 0b0)
+	{
+		printf("  * Product Specific Error Code: 0x%02X\n", senseInfo->FieldPointer[1]);
+	}
+	else if (senseInfo->SenseKeySpecificValid == 0b1)
+	{
+		UINT16 fieldPointer = senseInfo->FieldPointer[0] << 8 | senseInfo->FieldPointer[1];
+		float progress;
+		switch (senseInfo->SenseKey)
+		{
+		case 0x0:
+		case 0x2:
+			progress = (float)fieldPointer / 65536 * 100;
+			printf("    * Progress: %.2f%%\n", progress);
+			break;
+		case 0x5:
+			printf("    * Field Pointer (%s): 0x%04X\n", senseInfo->CommandData == 0b0 ? "Parameter List" : "CDB", fieldPointer);
+			break;
+		}
+		printf("    * Bit Pointer: 0%o\n", senseInfo->BitPointer);
+	}
+	printf("  * Drive %s cleaning.\n", senseInfo->CleanNeeded ? "needs" : "doesn't need");
 	printf("\n\n");
 }
 
