@@ -73,6 +73,32 @@ typedef struct _SECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR_INFO_FIPS140 {
 
 #pragma pack(push)
 #pragma pack(1)
+typedef struct _DATA_ENCRYPTION_STATUS {
+    UINT16 PageCode; // Network Byte Order
+    UINT16 PageLength; // Network Byte Order
+    UCHAR KeyScope : 3; // LSb of [4]
+    UCHAR Reserved1 : 2;
+    UCHAR ItNexusScope : 3; // MSb of [4]
+    UCHAR EncryptionMode;
+    UCHAR DecryptionMode;
+    UCHAR AlgorithmIndex;
+    UINT32 KeyInstanceCounter; // Network Byte Order
+    UCHAR RawDecryptionModeDisabled : 1; // LSb of [12]
+    UCHAR CheckExternalEncryptionModeStatus : 2;
+    UCHAR VolumeContainsEncryptedLogicalBlocks : 1;
+    UCHAR ParametersControl : 3;
+    UCHAR Reserved2 : 1; // MSb of [12]
+    UCHAR EncryptionParametersKadFormat;
+    UINT16 AvailableSupplementalDecryptionKeys; // Network Byte Order
+    UCHAR Reserved3[8];
+#if !defined(__midl)
+    UCHAR KADList[0];
+#endif
+} DATA_ENCRYPTION_STATUS, *PDATA_ENCRYPTION_STATUS;
+#pragma pack(pop)
+
+#pragma pack(push)
+#pragma pack(1)
 typedef struct _DATA_ENCRYPTION_CAPABILITIES {
     UINT16 PageCode; // Network Byte Order
     UINT16 PageLength; // Network Byte Order
@@ -285,6 +311,9 @@ ParseDeviceIdentifiers(PVPD_IDENTIFICATION_PAGE deviceIdentifiers, PUINT16 pLogi
 
 VOID
 ParseSupportedKeyFormats(PSUPPORTED_KEY_FORMATS supportedKeyFormats, PBOOL pCapRfc3447);
+
+VOID
+ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, INT16 aesGcmAlgorithmIndex);
 
 VOID
 ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, INT16 aesGcmAlgorithmIndex);

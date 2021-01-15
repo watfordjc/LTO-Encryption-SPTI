@@ -160,6 +160,34 @@ LPCSTR SenseKeyStrings[] = {
 	"UNKNOWN"
 };
 
+LPCSTR EncryptionModeStrings[] = {
+	"Disabled",
+	"External",
+	"Encrypt",
+	"Unexpected value"
+};
+
+LPCSTR DecryptionModeStrings[] = {
+	"Disabled",
+	"External",
+	"Decrypt",
+	"Mixed"
+};
+
+LPCSTR EncryptionParametersControlStings[] = {
+	"Unspecified",
+	"Non-exclusive external data encryption control",
+	"Exclusive SSC device server control",
+	"Exclusive ADC device server control",
+	"Exclusive management interface control"
+};
+
+LPCSTR EncryptionParametersScopeStrings[] = {
+	"Public",
+	"Local",
+	"All I_T Nexus"
+};
+
 /// <summary>
 /// Uses SCSI Pass Through Interface (SPTI) to communicate with an LTO tape drive
 /// </summary>
@@ -399,7 +427,7 @@ main(
 		{
 			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 			if (pageCode == SPIN_TAPE_ENCRYPTION_STATUS) {
-				ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Data Encryption Status");
+				ParseDataEncryptionStatus((PDATA_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, aesGcmAlgorithmIndex);
 			}
 		}
 
@@ -643,14 +671,19 @@ main(
 
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
-		// CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Status page
+		/*
+		* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Status page
+		*/
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
 		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
-			ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Data Encryption Status");
+			int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
+			if (pageCode == SPIN_TAPE_ENCRYPTION_STATUS) {
+				ParseDataEncryptionStatus((PDATA_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, aesGcmAlgorithmIndex);
+			}
 		}
 
 
@@ -1305,6 +1338,65 @@ ParseSupportedKeyFormats(PSUPPORTED_KEY_FORMATS supportedKeyFormats, PBOOL pCapR
 }
 
 /// <summary>
+/// Parse a pointer to a DATA_ENCRYPTION_STATUS struct
+/// </summary>
+/// <param name="dataEncryptionStatus">A pointer to a DATA_ENCRYPTION_STATUS struct</param>
+/// <param name="aesGcmAlgorithmIndex">The drive's encryption algorithm index for AES256-GCM</param>
+VOID
+ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, INT16 aesGcmAlgorithmIndex)
+{
+	printf("Parsing Data Encryption Status page...\n");
+	// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+	dataEncryptionStatus->PageCode = ntohs(dataEncryptionStatus->PageCode);
+	dataEncryptionStatus->PageLength = ntohs(dataEncryptionStatus->PageLength);
+	dataEncryptionStatus->KeyInstanceCounter = ntohl(dataEncryptionStatus->KeyInstanceCounter);
+	dataEncryptionStatus->AvailableSupplementalDecryptionKeys = ntohs(dataEncryptionStatus->AvailableSupplementalDecryptionKeys);
+	printf("* Key Scope: %s (0x%01x)\n", EncryptionParametersScopeStrings[dataEncryptionStatus->KeyScope], dataEncryptionStatus->KeyScope);
+	printf("* I_T Nexus Scope: %s (0x%01x)\n", EncryptionParametersScopeStrings[dataEncryptionStatus->KeyScope], dataEncryptionStatus->ItNexusScope);
+	printf("* Encryption Mode: %s\n", EncryptionModeStrings[dataEncryptionStatus->EncryptionMode]);
+	printf("* Decryption Mode: %s\n", DecryptionModeStrings[dataEncryptionStatus->DecryptionMode]);
+	printf("* Algorithm Index: 0x%02x (%s)\n", dataEncryptionStatus->AlgorithmIndex, dataEncryptionStatus->AlgorithmIndex == aesGcmAlgorithmIndex ? "AES256-GCM" : "Unknown");
+	printf("* Key Instance Counter: %d\n", dataEncryptionStatus->KeyInstanceCounter);
+	printf("* Raw Decryption Mode Disabled (RDMD): %s\n", BOOLEAN_TO_STRING(dataEncryptionStatus->RawDecryptionModeDisabled));
+	printf("* Check External Encryption Mode Status (CEEMS): 0x%01x\n", dataEncryptionStatus->CheckExternalEncryptionModeStatus);
+	printf("* Volume Contains Encrypted Logical Blocks (VCELB): %s\n", BOOLEAN_TO_STRING(dataEncryptionStatus->VolumeContainsEncryptedLogicalBlocks));
+	printf("* Parameters Control: %s\n", EncryptionParametersControlStings[dataEncryptionStatus->ParametersControl]);
+	printf("* Encryption Parameters KAD Format: %s (0x%02X)\n",
+		dataEncryptionStatus->EncryptionParametersKadFormat < NUMBER_OF_KAD_FORMAT_STRINGS
+		? KadFormatStrings[dataEncryptionStatus->EncryptionParametersKadFormat]
+		: KadFormatStrings[NUMBER_OF_KAD_FORMAT_STRINGS - 1],
+		dataEncryptionStatus->EncryptionParametersKadFormat
+	);
+	printf("* Available Supplemental Decryption Key Count (ASDKC): %d\n", dataEncryptionStatus->AvailableSupplementalDecryptionKeys);
+	int kadListLength = (UINT16)dataEncryptionStatus->PageLength - 20;
+	printf("* KAD List Length: 0x%02x (%d bytes)\n", kadListLength, kadListLength);
+	PPLAIN_KEY_DESCRIPTOR kad = NULL;
+	int currentKadTotalLength = 0;
+	for (int i = 0; i < kadListLength; i += currentKadTotalLength)
+	{
+		UINT16 currentKadLength = dataEncryptionStatus->KADList[i + 2] << 8 | dataEncryptionStatus->KADList[i + 3];
+		currentKadTotalLength = FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[currentKadLength]);
+		kad = calloc(currentKadTotalLength, 1);
+		if (kad != NULL)
+		{
+			memcpy(kad, dataEncryptionStatus->KADList + i, currentKadTotalLength);
+			printf("  * KAD Type: 0x%02x\n", kad->Type);
+			printf("    * KAD Length: %d\n", currentKadLength);
+			if (dataEncryptionStatus->EncryptionParametersKadFormat == SPOUT_TAPE_KAD_FORMAT_ASCII)
+			{
+				printf("    * KAD: %.*s\n", currentKadLength, kad->Descriptor);
+			}
+			else
+			{
+				fprintf(stderr, "Currently only able to display ASCII KADs.\n");
+			}
+			free(kad);
+		}
+	}
+	printf("\n");
+}
+
+/// <summary>
 /// Parse a pointer to a NEXT_BLOCK_ENCRYPTION_STATUS struct
 /// </summary>
 /// <param name="pNextBlockStatus">A pointer to a NEXT_BLOCK_ENCRYPTION_STATUS struct</param>
@@ -1335,7 +1427,7 @@ ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, IN
 		: KadFormatStrings[NUMBER_OF_KAD_FORMAT_STRINGS - 1],
 		nextBlockStatus->KADFormat
 	);
-	printf("* KAD List Length: 0x%02x (%d bytes)\n", kadListLength, kadListLength); // TODO: Parse KAD List
+	printf("* KAD List Length: 0x%02x (%d bytes)\n", kadListLength, kadListLength);
 	PPLAIN_KEY_DESCRIPTOR kad = NULL;
 	int currentKadTotalLength = 0;
 	for (int i = 0; i < kadListLength; i += currentKadTotalLength)
