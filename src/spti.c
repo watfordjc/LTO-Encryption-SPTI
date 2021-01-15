@@ -707,7 +707,7 @@ main(
 
 		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
-			ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Certificate Data");
+			ParseCertificateData((PCERTIFICATE_DATA)psptwb_ex->ucDataBuf);
 		}
 
 
@@ -1452,6 +1452,24 @@ ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, IN
 		}
 	}
 	printf("\n");
+}
+
+/// <summary>
+/// Parse a pointer to a CERTIFICATE_DATA struct
+/// </summary>
+/// <param name="certificateData">A pointer to a CERTIFICATE_DATA struct</param>
+VOID
+ParseCertificateData(PCERTIFICATE_DATA certificateData)
+{
+	printf("Parsing Certificate data...\n");
+	// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+	certificateData->Length = ntohs(certificateData->Length);
+	for (UINT16 i = 0; i < certificateData->Length; i++)
+	{
+		printf("%X", (certificateData->Certificate[i] & 0xFF) >> 4); // Upper 4 bits
+		printf("%X", certificateData->Certificate[i] & 0x0F); // Lower 4 bits
+	}
+	printf("%s\n\n", certificateData->Length == 0 ? "* No certificate" : "");
 }
 
 /// <summary>

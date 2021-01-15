@@ -253,6 +253,17 @@ typedef struct _WRAPPED_KEY_DESCRIPTOR {
 
 #pragma pack(push)
 #pragma pack(1)
+typedef struct _CERTIFICATE_DATA {
+    UCHAR Reserved1[2];
+    UINT16 Length; // Network Byte Order
+#if !defined(__midl)
+    UCHAR Certificate[0];
+#endif
+} CERTIFICATE_DATA, *PCERTIFICATE_DATA;
+#pragma pack(pop)
+
+#pragma pack(push)
+#pragma pack(1)
 typedef struct _SENSE_INFO {
     UCHAR ErrorCode : 7; // LSb of [0]
     UCHAR Valid : 1; // MSb of [0]
@@ -317,6 +328,9 @@ ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, INT16 ae
 
 VOID
 ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, INT16 aesGcmAlgorithmIndex);
+
+VOID
+ParseCertificateData(PCERTIFICATE_DATA certificateData);
 
 UCHAR
 GetCdbLength(UCHAR opCode);
