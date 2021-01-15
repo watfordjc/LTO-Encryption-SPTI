@@ -130,6 +130,17 @@ typedef struct _RSA2048_PUBLIC_KEY {
 
 #pragma pack(push)
 #pragma pack(1)
+typedef struct _SUPPORTED_KEY_FORMATS {
+    UINT16 PageCode;
+    UINT16 PageLength;
+#if !defined(__midl)
+    UCHAR KeyFormats[0];
+#endif
+} SUPPORTED_KEY_FORMATS, *PSUPPORTED_KEY_FORMATS;
+#pragma pack(pop)
+
+#pragma pack(push)
+#pragma pack(1)
 typedef struct _NEXT_BLOCK_ENCRYPTION_STATUS {
     UINT16 PageCode; // Network Byte Order
     UINT16 PageLength; // Network Byte Order
@@ -271,6 +282,9 @@ ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY dev
 
 VOID
 ParseDeviceIdentifiers(PVPD_IDENTIFICATION_PAGE deviceIdentifiers, PUINT16 pLogicalUnitIdentifierLength, PUCHAR* ppLogicalUnitIdentifier);
+
+VOID
+ParseSupportedKeyFormats(PSUPPORTED_KEY_FORMATS supportedKeyFormats, PBOOL pCapRfc3447);
 
 VOID
 ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, INT16 aesGcmAlgorithmIndex);

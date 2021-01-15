@@ -297,6 +297,8 @@ main(
 
 	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
 	{
+		int pageCode;
+
 		/*
 		* CDB: Security Protocol In, Security Protocol Information, Security Compliance page
 		*/
@@ -337,7 +339,7 @@ main(
 
 		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
-			int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
+			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 			if (pageCode == SPIN_TAPE_ENCRYPTION_CAPABILITIES)
 			{
 				ParseDataEncryptionCapabilities((PDATA_ENCRYPTION_CAPABILITIES)psptwb_ex->ucDataBuf, &encryptionCapabilities, &aesGcmAlgorithmIndex);
@@ -356,66 +358,35 @@ main(
 
 		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
-			int pageCode = psptwb_ex->ucDataBuf[1];
+			pageCode = psptwb_ex->ucDataBuf[1];
 			if (pageCode == VPD_DEVICE_IDENTIFIERS)
 			{
 				ParseDeviceIdentifiers((PVPD_IDENTIFICATION_PAGE)psptwb_ex->ucDataBuf, &logicalUnitIdentifierLength, &logicalUnitIdentifier);
 			}
 		}
-	}
 
 
-	/*
-	* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Supported Key Formats page
-	*/
-	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	{
+		/*
+		* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Supported Key Formats page
+		*/
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_SUPPORTED_KEY_FORMATS);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		CheckStatus(fileHandle, psptwb_ex, status, returned, length);
-
-		int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
-		if (pageCode == SPIN_TAPE_SUPPORTED_KEY_FORMATS)
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
-			char* description;
-			printf("Parsing Supported Key Formats page...\n");
-			int pageLength = psptwb_ex->ucDataBuf[2] << 8 | psptwb_ex->ucDataBuf[3];
-
-			for (int i = 0; i < pageLength; i++)
+			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
+			if (pageCode == SPIN_TAPE_SUPPORTED_KEY_FORMATS)
 			{
-				switch (psptwb_ex->ucDataBuf[4 + i])
-				{
-				case SPIN_TAPE_KEY_FORMAT_PLAIN:
-					description = "Plain-text";
-					break;
-				case SPIN_TAPE_KEY_FORMAT_WRAPPED:
-					description = "Wrapped/RFC 3447";
-					capRfc3447 = TRUE;
-					break;
-				default:
-					description = "Unknown";
-					break;
-				}
-
-				printf("* Supported Key Format: 0x%02X (%s)\n", psptwb_ex->ucDataBuf[4 + i], description);
+				ParseSupportedKeyFormats((PSUPPORTED_KEY_FORMATS)psptwb_ex->ucDataBuf, &capRfc3447);
 			}
-
-			printf("\n");
 		}
 
-		//  PrintDataBuffer(psptwb_ex->ucDataBuf, psptwb_ex->spt.DataInTransferLength);
-	}
+		fprintf(
+			capRfc3447 ? stdout : stderr,
+			"** This device %s RFC 3447 AES Key-Wrapping. **\n\n", capRfc3447 ? "supports" : "doesn't support"
+		);
 
-	fprintf(
-		capRfc3447 ? stdout : stderr,
-		"** This device %s RFC 3447 AES Key-Wrapping. **\n\n", capRfc3447 ? "supports" : "doesn't support"
-	);
-
-	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	{
-		int pageCode;
 
 		/*
 		* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Status page
@@ -454,6 +425,7 @@ main(
 			}
 		}
 	}
+
 
 	/*
 	* Send a wrapped key to the drive if wrapped keys are supported and supplied key is in wrapped format
@@ -1293,6 +1265,41 @@ ParseDeviceIdentifiers(PVPD_IDENTIFICATION_PAGE deviceIdentifiers, PUINT16 pLogi
 			}
 		}
 		currentIdentifier++;
+	}
+	printf("\n");
+}
+
+/// <summary>
+/// Parse a pointer to a SUPPORTED_KEY_FORMATS struct
+/// </summary>
+/// <param name="supportedKeyFormats">A pointer to a SUPPORTED_KEY_FORMATS struct</param>
+/// <param name="pCapRfc3447">A pointer to a boolean for holding RFC 3447 capability</param>
+VOID
+ParseSupportedKeyFormats(PSUPPORTED_KEY_FORMATS supportedKeyFormats, PBOOL pCapRfc3447)
+{
+	printf("Parsing Supported Key Formats page...\n");
+	*pCapRfc3447 = FALSE;
+	// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+	supportedKeyFormats->PageCode = ntohs(supportedKeyFormats->PageCode);
+	supportedKeyFormats->PageLength = ntohs(supportedKeyFormats->PageLength);
+
+	PCHAR description;
+	for (int i = 0; i < supportedKeyFormats->PageLength; i++)
+	{
+		switch (supportedKeyFormats->KeyFormats[i])
+		{
+		case SPIN_TAPE_KEY_FORMAT_PLAIN:
+			description = "Plain-text";
+			break;
+		case SPIN_TAPE_KEY_FORMAT_WRAPPED:
+			description = "Wrapped/RFC 3447";
+			*pCapRfc3447 = TRUE;
+			break;
+		default:
+			description = "Unknown";
+			break;
+		}
+		printf("* Supported Key Format: 0x%02X (%s)\n", supportedKeyFormats->KeyFormats[i], description);
 	}
 	printf("\n");
 }
