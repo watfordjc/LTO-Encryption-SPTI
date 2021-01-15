@@ -270,6 +270,9 @@ BOOL
 ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY deviceServerKeyWrappingPublicKey, UINT16 logicalUnitIdentifierLength, PUCHAR logicalUnitIdentifier, int* wrappedDescriptorsLength, PUCHAR* wrappedDescriptors);
 
 VOID
+ParseDeviceIdentifiers(PVPD_IDENTIFICATION_PAGE deviceIdentifiers, PUINT16 pLogicalUnitIdentifierLength, PUCHAR* ppLogicalUnitIdentifier);
+
+VOID
 ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, INT16 aesGcmAlgorithmIndex);
 
 UCHAR

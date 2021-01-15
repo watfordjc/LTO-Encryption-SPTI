@@ -343,139 +343,27 @@ main(
 				ParseDataEncryptionCapabilities((PDATA_ENCRYPTION_CAPABILITIES)psptwb_ex->ucDataBuf, &encryptionCapabilities, &aesGcmAlgorithmIndex);
 			}
 		}
-	}
 
-	/*
-	* CDB: Inquiry, Device Identifiers VPD page
-	*/
-	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	{
+
+		/*
+		* CDB: Inquiry, Device Identifiers VPD page
+		*/
 		length = ResetSrbIn(psptwb_ex, SCSIOP_INQUIRY);
 		if (length == 0) { goto Cleanup; }
 		psptwb_ex->spt.Cdb[1] = CDB_INQUIRY_EVPD;
 		psptwb_ex->spt.Cdb[2] = VPD_DEVICE_IDENTIFIERS;
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
-		CheckStatus(fileHandle, psptwb_ex, status, returned, length);
-
-		int pageCode = psptwb_ex->ucDataBuf[1];
-		if (pageCode == VPD_DEVICE_IDENTIFIERS) {
-
-			printf("Parsing Device Identifiers page...\n");
-			int pageLength = psptwb_ex->ucDataBuf[3];
-			int identifierTotalLength = 0;
-			int currentIdentifier = 0;
-			PVPD_IDENTIFICATION_DESCRIPTOR identifier = NULL;
-			UCHAR identifierLength = 0;
-			char* description = NULL;
-			int identifierInt = 0;
-			for (int i = 4; i < pageLength; i += identifierTotalLength)
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		{
+			int pageCode = psptwb_ex->ucDataBuf[1];
+			if (pageCode == VPD_DEVICE_IDENTIFIERS)
 			{
-				identifierLength = psptwb_ex->ucDataBuf[i + 3];
-				identifierTotalLength = FIELD_OFFSET(VPD_IDENTIFICATION_DESCRIPTOR, Identifier[identifierLength]);
-				identifier = calloc(1, identifierTotalLength);
-				memcpy(identifier, psptwb_ex->ucDataBuf + i, identifierTotalLength);
-				switch (identifier->Association)
-				{
-				case VpdAssocDevice:
-					description = "Logical Unit Identifier";
-					break;
-				case VpdAssocPort:
-					description = "Port Identifier";
-					break;
-				case VpdAssocTarget:
-					description = "Target Device Identifier";
-					break;
-				default:
-					description = "Unknown Association";
-					break;
-				}
-				switch (identifier->IdentifierType)
-				{
-				case VpdIdentifierTypeVendorId:
-					printf("* Vendor ID (%s): ", description);
-					if (identifier->CodeSet == VpdCodeSetAscii) {
-						char* vendorId = calloc(1, (size_t)identifierLength + 1);
-						strncpy_s(vendorId, (size_t)identifierLength + 1, (char*)identifier->Identifier, identifierLength);
-						printf("%s\n", vendorId);
-						free(vendorId);
-					}
-					else {
-						PrintDataBuffer(identifier->Identifier, identifierLength);
-					}
-					break;
-				case VpdIdentifierTypeFCPHName:
-					printf("* IEEE WWN (%s): ", description);
-					if (identifier->CodeSet == VpdCodeSetBinary) {
-						for (int j = 0; j < identifierLength; j++)
-						{
-							if (j > 0) { printf(":"); }
-							printf("%X", (identifier->Identifier[j] & 0xFF) >> 4); // Upper 4 bits
-							printf("%X", identifier->Identifier[j] & 0x0F); // Lower 4 bits
-						}
-						printf("\n");
-					}
-					else {
-						printf("\n");
-						PrintDataBuffer(identifier->Identifier, identifierLength);
-					}
-					break;
-				case VpdIdentifierTypePortRelative:
-					if (identifier->CodeSet == VpdCodeSetBinary) {
-						identifierInt = identifier->Identifier[0] << 24 | identifier->Identifier[1] << 16 | identifier->Identifier[2] << 8 | identifier->Identifier[3];
-						printf("* Relative Port Identifier: %d\n", identifierInt);
-					}
-					break;
-				case VpdIdentifierTypeTargetPortGroup:
-					if (identifier->CodeSet == VpdCodeSetBinary) {
-						identifierInt = identifier->Identifier[0] << 24 | identifier->Identifier[1] << 16 | identifier->Identifier[2] << 8 | identifier->Identifier[3];
-						printf("* Target Port Group Identifier: %d\n", identifierInt);
-					}
-					break;
-				default:
-					printf("* Other identifier (%s):...\n", description);
-					PrintDataBuffer(identifier->Identifier, identifierLength);
-				}
-				if ((identifier->Reserved2 >> 1) != 0x0) {
-					if ((identifier->Association == VpdAssocPort || identifier->Association == VpdAssocTarget) && (identifier->Reserved2 >> 1) == 0x1) {
-						switch (identifier->Reserved) {
-						case 0x0:
-							description = "Fibre Channel";
-							break;
-						case 0x2:
-							description = "SSA";
-							break;
-						case 0x3:
-							description = "IEEE 1394";
-							break;
-						case 0x4:
-							description = "RDMA";
-							break;
-						case 0x5:
-							description = "iSCSI";
-							break;
-						case 0x6:
-							description = "Serial Attached SCSI (SAS)";
-							break;
-						default:
-							description = "Unknown protocol";
-							break;
-						}
-						printf("   via %s (0x%01X)\n", description, identifier->Reserved);
-					}
-				}
-				if (currentIdentifier == 0) {
-					logicalUnitIdentifierLength = identifierLength;
-					logicalUnitIdentifier = calloc(sizeof(UCHAR), identifierLength);
-					memcpy(logicalUnitIdentifier, identifier->Identifier, identifierLength);
-				}
-				free(identifier);
-				currentIdentifier++;
+				ParseDeviceIdentifiers((PVPD_IDENTIFICATION_PAGE)psptwb_ex->ucDataBuf, &logicalUnitIdentifierLength, &logicalUnitIdentifier);
 			}
-			printf("\n");
 		}
-
 	}
+
 
 	/*
 	* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Supported Key Formats page
@@ -1282,6 +1170,131 @@ ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY dev
 		fprintf(stderr, "\nOnly RSA-2048 public keys with a 256 byte modulus and 3 byte exponent are currently supported.\n");
 	}
 	return TRUE;
+}
+
+/// <summary>
+/// Parse a pointer to a VPD_IDENTIFICATION_PAGE struct
+/// </summary>
+/// <param name="deviceIdentifiers">A pointer to a VPD_IDENTIFICATION_PAGE struct</param>
+/// <param name="pLogicalUnitIdentifierLength">A pointer to an int that will contain the length of the logical unit identifier</param>
+/// <param name="ppLogicalUnitIdentifier">A pointer to a character array that will point to a character array containing the logical unit identifier</param>
+VOID
+ParseDeviceIdentifiers(PVPD_IDENTIFICATION_PAGE deviceIdentifiers, PUINT16 pLogicalUnitIdentifierLength, PUCHAR* ppLogicalUnitIdentifier)
+{
+	printf("Parsing Device Identifiers page...\n");
+	int identifierTotalLength = 0;
+	int currentIdentifier = 0;
+	PVPD_IDENTIFICATION_DESCRIPTOR identifier = NULL;
+	PCHAR description = NULL;
+	int identifierInt = 0;
+	for (int i = 0; i < deviceIdentifiers->PageLength; i += identifierTotalLength)
+	{
+		identifier = (PVPD_IDENTIFICATION_DESCRIPTOR)(deviceIdentifiers->Descriptors + i);
+		identifierTotalLength = FIELD_OFFSET(VPD_IDENTIFICATION_DESCRIPTOR, Identifier[identifier->IdentifierLength]);
+		switch (identifier->Association)
+		{
+		case VpdAssocDevice:
+			description = "Logical Unit Identifier";
+			break;
+		case VpdAssocPort:
+			description = "Port Identifier";
+			break;
+		case VpdAssocTarget:
+			description = "Target Device Identifier";
+			break;
+		default:
+			description = "Unknown Association";
+			break;
+		}
+		switch (identifier->IdentifierType)
+		{
+		case VpdIdentifierTypeVendorId:
+			printf("* Vendor ID (%s): ", description);
+			if (identifier->CodeSet == VpdCodeSetAscii) {
+				PCHAR vendorId = calloc((size_t)identifier->IdentifierLength + 1, sizeof(UCHAR));
+				if (vendorId != NULL)
+				{
+					strncpy_s(vendorId, (size_t)identifier->IdentifierLength + 1, (PCHAR)identifier->Identifier, identifier->IdentifierLength);
+					printf("%s\n", vendorId);
+					free(vendorId);
+				}
+			}
+			else {
+				PrintDataBuffer(identifier->Identifier, identifier->IdentifierLength);
+			}
+			break;
+		case VpdIdentifierTypeFCPHName:
+			printf("* IEEE WWN (%s): ", description);
+			if (identifier->CodeSet == VpdCodeSetBinary) {
+				for (int j = 0; j < identifier->IdentifierLength; j++)
+				{
+					if (j > 0) { printf(":"); }
+					printf("%X", (identifier->Identifier[j] & 0xFF) >> 4); // Upper 4 bits
+					printf("%X", identifier->Identifier[j] & 0x0F); // Lower 4 bits
+				}
+				printf("\n");
+			}
+			else {
+				printf("\n");
+				PrintDataBuffer(identifier->Identifier, identifier->IdentifierLength);
+			}
+			break;
+		case VpdIdentifierTypePortRelative:
+			if (identifier->CodeSet == VpdCodeSetBinary) {
+				identifierInt = identifier->Identifier[0] << 24 | identifier->Identifier[1] << 16 | identifier->Identifier[2] << 8 | identifier->Identifier[3];
+				printf("* Relative Port Identifier: %d\n", identifierInt);
+			}
+			break;
+		case VpdIdentifierTypeTargetPortGroup:
+			if (identifier->CodeSet == VpdCodeSetBinary) {
+				identifierInt = identifier->Identifier[0] << 24 | identifier->Identifier[1] << 16 | identifier->Identifier[2] << 8 | identifier->Identifier[3];
+				printf("* Target Port Group Identifier: %d\n", identifierInt);
+			}
+			break;
+		default:
+			printf("* Other identifier (%s):...\n", description);
+			PrintDataBuffer(identifier->Identifier, identifier->IdentifierLength);
+		}
+		if ((identifier->Reserved2 >> 1) != 0x0) {
+			if ((identifier->Association == VpdAssocPort || identifier->Association == VpdAssocTarget) && (identifier->Reserved2 >> 1) == 0x1) {
+				switch (identifier->Reserved) {
+				case 0x0:
+					description = "Fibre Channel";
+					break;
+				case 0x2:
+					description = "SSA";
+					break;
+				case 0x3:
+					description = "IEEE 1394";
+					break;
+				case 0x4:
+					description = "RDMA";
+					break;
+				case 0x5:
+					description = "iSCSI";
+					break;
+				case 0x6:
+					description = "Serial Attached SCSI (SAS)";
+					break;
+				default:
+					description = "Unknown protocol";
+					break;
+				}
+				printf("   via %s (0x%01X)\n", description, identifier->Reserved);
+			}
+		}
+		if (currentIdentifier == 0) {
+			*pLogicalUnitIdentifierLength = identifier->IdentifierLength;
+			PUCHAR logicalUnitIdentifier = calloc(identifier->IdentifierLength, sizeof(UCHAR));
+			if (logicalUnitIdentifier != NULL)
+			{
+				*ppLogicalUnitIdentifier = logicalUnitIdentifier;
+				memcpy(logicalUnitIdentifier, identifier->Identifier, identifier->IdentifierLength);
+			}
+		}
+		currentIdentifier++;
+	}
+	printf("\n");
 }
 
 /// <summary>
