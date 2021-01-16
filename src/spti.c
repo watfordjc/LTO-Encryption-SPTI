@@ -328,6 +328,25 @@ main(
 		int pageCode;
 
 		/*
+		* CDB: Inquiry, Device Identifiers VPD page
+		*/
+		length = ResetSrbIn(psptwb_ex, SCSIOP_INQUIRY);
+		if (length == 0) { goto Cleanup; }
+		psptwb_ex->spt.Cdb[1] = CDB_INQUIRY_EVPD;
+		psptwb_ex->spt.Cdb[2] = VPD_DEVICE_IDENTIFIERS;
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		{
+			pageCode = psptwb_ex->ucDataBuf[1];
+			if (pageCode == VPD_DEVICE_IDENTIFIERS)
+			{
+				ParseDeviceIdentifiers((PVPD_IDENTIFICATION_PAGE)psptwb_ex->ucDataBuf, &logicalUnitIdentifierLength, &logicalUnitIdentifier);
+			}
+		}
+
+
+		/*
 		* CDB: Security Protocol In, Security Protocol Information, Security Compliance page
 		*/
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_SECURITY_COMPLIANCE);
@@ -359,6 +378,19 @@ main(
 
 
 		/*
+		* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Management Capabilities page
+		*/
+		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_MANAGEMENT_CAPABILITIES);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		{
+			ParseDataEncryptionManagementCapabilities((PDATA_ENCRYPTION_MANAGEMENT_CAPABILITIES)psptwb_ex->ucDataBuf);
+		}
+
+
+		/*
 		* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Capabilities page
 		*/
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_CAPABILITIES);
@@ -371,25 +403,6 @@ main(
 			if (pageCode == SPIN_TAPE_ENCRYPTION_CAPABILITIES)
 			{
 				ParseDataEncryptionCapabilities((PDATA_ENCRYPTION_CAPABILITIES)psptwb_ex->ucDataBuf, &encryptionCapabilities, &aesGcmAlgorithmIndex);
-			}
-		}
-
-
-		/*
-		* CDB: Inquiry, Device Identifiers VPD page
-		*/
-		length = ResetSrbIn(psptwb_ex, SCSIOP_INQUIRY);
-		if (length == 0) { goto Cleanup; }
-		psptwb_ex->spt.Cdb[1] = CDB_INQUIRY_EVPD;
-		psptwb_ex->spt.Cdb[2] = VPD_DEVICE_IDENTIFIERS;
-		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-
-		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
-		{
-			pageCode = psptwb_ex->ucDataBuf[1];
-			if (pageCode == VPD_DEVICE_IDENTIFIERS)
-			{
-				ParseDeviceIdentifiers((PVPD_IDENTIFICATION_PAGE)psptwb_ex->ucDataBuf, &logicalUnitIdentifierLength, &logicalUnitIdentifier);
 			}
 		}
 
@@ -429,6 +442,19 @@ main(
 			if (pageCode == SPIN_TAPE_ENCRYPTION_STATUS) {
 				ParseDataEncryptionStatus((PDATA_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, aesGcmAlgorithmIndex);
 			}
+		}
+
+
+		/*
+		// CDB: Security Protocol In, Security Protocol Information, Certificate Data
+		*/
+		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_CERTIFICATE_DATA);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		{
+			ParseCertificateData((PCERTIFICATE_DATA)psptwb_ex->ucDataBuf);
 		}
 
 
@@ -698,29 +724,6 @@ main(
 			if (pageCode == SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS) {
 				ParseNextBlockEncryptionStatus((PNEXT_BLOCK_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, aesGcmAlgorithmIndex);
 			}
-		}
-
-		// CDB: Security Protocol In, Security Protocol Information, Certificate Data
-		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_CERTIFICATE_DATA);
-		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-
-		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
-		{
-			ParseCertificateData((PCERTIFICATE_DATA)psptwb_ex->ucDataBuf);
-		}
-
-
-		/*
-		* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Management Capabilities page
-		*/
-		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_MANAGEMENT_CAPABILITIES);
-		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-
-		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
-		{
-			ParseDataEncryptionManagementCapabilities((PDATA_ENCRYPTION_MANAGEMENT_CAPABILITIES)psptwb_ex->ucDataBuf);
 		}
 	}
 
