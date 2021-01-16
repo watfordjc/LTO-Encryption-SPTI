@@ -17,7 +17,8 @@ The current commit of spti.exe only accepts arguments in a particular order.
 * key: *optional*:
   * **none** to clear keys and disable encryption and decryption.
   * **weak** for a hard-coded very weak key set using plain key format (for testing encryption support); ```0x00``` key format.
-  * **ABCD...** a 512 character long hex string for an RSA-2048 wrapped key; ```0x02``` key format.
+  * **ABCD...** a 64 character long hex string for an AES-256 key; ```0x00``` key format.
+  * **ABCD...** a 512 character long hex string for an RSA-2048 wrapped AES-256 key; ```0x02``` key format.
 * kad: *optional*:
   * **TestKAD** use the Key-Associated Data (KAD) ASCII value of **TestKAD** for blocks written to a tape.
     * This is currently limited to ASCII characters and AKAD (authenticated KAD) drive and tape limitations.
