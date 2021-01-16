@@ -137,6 +137,26 @@ typedef struct _DATA_ENCRYPTION_CAPABILITIES {
 
 #pragma pack(push)
 #pragma pack(1)
+typedef struct _DATA_ENCRYPTION_MANAGEMENT_CAPABILITIES {
+    UINT16 PageCode; // Network Byte Order
+    UINT16 PageLength; // Network Byte Order
+    UCHAR LockCapable : 1; // LSb of [4]
+    UCHAR Reserved1 : 7; // MSb of [4]
+    UCHAR ClearKeyOnReservationLossCapable : 1; // LSb of [5]
+    UCHAR ClearKeyOnReservationPreemptedCapable : 1;
+    UCHAR ClearKeyOnDemountCapable : 1;
+    UCHAR Reserved2 : 5; // MSb of [5]
+    UCHAR Reserved3;
+    UCHAR PublicScopeCapable : 1; // LSb of [7]
+    UCHAR LocalScopeCapable : 1;
+    UCHAR AITNScopeCapable : 1;
+    UCHAR Reserved4 : 5; // MSb of [7]
+    UCHAR Reserved5[8];
+} DATA_ENCRYPTION_MANAGEMENT_CAPABILITIES, *PDATA_ENCRYPTION_MANAGEMENT_CAPABILITIES;
+#pragma pack(pop)
+
+#pragma pack(push)
+#pragma pack(1)
 typedef struct _DEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY {
     UINT16 PageCode; // Network Byte Order
     UINT16 PageLength; // Network Byte Order
@@ -310,6 +330,9 @@ NullPaddedNullTerminatedToString(UINT32 arrayLength, PUCHAR characterArray);
 
 VOID
 ParseSupportedSecurityProtocolList(PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA securityProtocolList, PBOOL pCapTapeEncryption);
+
+VOID
+ParseDataEncryptionManagementCapabilities(PDATA_ENCRYPTION_MANAGEMENT_CAPABILITIES encryptionManagementCapabilities);
 
 VOID
 ParseDataEncryptionCapabilities(PDATA_ENCRYPTION_CAPABILITIES pBuffer, PDATA_ENCRYPTION_CAPABILITIES* ppEncryptionCapabilities, PINT16 pAesGcmAlgorithmIndex);

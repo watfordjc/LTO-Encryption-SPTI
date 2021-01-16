@@ -711,14 +711,16 @@ main(
 		}
 
 
-		// CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Management Capabilities page
+		/*
+		* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Management Capabilities page
+		*/
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_MANAGEMENT_CAPABILITIES);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
 		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
-			ParseSimpleSrbIn(psptwb_ex, status, length, returned, "Data Encryption Management Capabilities");
+			ParseDataEncryptionManagementCapabilities((PDATA_ENCRYPTION_MANAGEMENT_CAPABILITIES)psptwb_ex->ucDataBuf);
 		}
 	}
 
@@ -935,6 +937,27 @@ ParseSupportedSecurityProtocolList(PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA 
 			GetSecurityProtocolDescription(securityProtocolList->SupportedSecurityProtocol[i])
 		);
 	}
+	printf("\n");
+}
+
+/// <summary>
+/// Parse a pointer to a DATA_ENCRYPTION_MANAGEMENT_CAPABILITIES struct
+/// </summary>
+/// <param name="encryptionManagementCapabilities">A DATA_ENCRYPTION_MANAGEMENT_CAPABILITIES struct</param>
+VOID
+ParseDataEncryptionManagementCapabilities(PDATA_ENCRYPTION_MANAGEMENT_CAPABILITIES encryptionManagementCapabilities)
+{
+	printf("Parsing Data Encryption Management Capabilities page...\n");
+	// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+	encryptionManagementCapabilities->PageCode = ntohs(encryptionManagementCapabilities->PageCode);
+	encryptionManagementCapabilities->PageLength = ntohs(encryptionManagementCapabilities->PageLength);
+	printf("* Lock Capable (LOCK_C): %s\n", BOOLEAN_TO_STRING(encryptionManagementCapabilities->LockCapable));
+	printf("* Clear Key On Reservation Loss Capable (CKORL_C): %s\n", BOOLEAN_TO_STRING(encryptionManagementCapabilities->ClearKeyOnReservationLossCapable));
+	printf("* Clear Key On Reservation Pre-empted Capable (CKORP_C): %s\n", BOOLEAN_TO_STRING(encryptionManagementCapabilities->ClearKeyOnReservationPreemptedCapable));
+	printf("* Clear Key On Demount Capable (CKOD_C): %s\n", BOOLEAN_TO_STRING(encryptionManagementCapabilities->ClearKeyOnDemountCapable));
+	printf("* Public scope Capable (Public_C): %s\n", BOOLEAN_TO_STRING(encryptionManagementCapabilities->PublicScopeCapable));
+	printf("* Local scope Capable (Local_C): %s\n", BOOLEAN_TO_STRING(encryptionManagementCapabilities->LocalScopeCapable));
+	printf("* All I_T Nexus scope Capable (AITN_C): %s\n", BOOLEAN_TO_STRING(encryptionManagementCapabilities->AITNScopeCapable));
 	printf("\n");
 }
 
