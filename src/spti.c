@@ -220,8 +220,9 @@ main(
 		fprintf(stderr, "Usage:  %s <port-name> [key] [kad]\n", argv[0]);
 		fprintf(stderr, "Examples:\n");
 		fprintf(stderr, "    spti Tape0                    (open the tape class driver in SHARED READ mode)\n");
-		fprintf(stderr, "    spti Tape0 D00D00             (Use RFC 3447 wrapped key 0xD00D00 on drive Tape0)\n");
-		fprintf(stderr, "    spti Tape0 D00D00 BackupTape1 (Use RFC 3447 wrapped key 0xD00D00 and KAD BackupTape1 on drive Tape0)\n");
+		fprintf(stderr, "    spti Tape0 D00D00             (Use AES-256 key 0xD00D00 (64 hex digits) on drive Tape0)\n");
+		fprintf(stderr, "    spti Tape0 D00D00             (Use RSA-2048 wrapped key 0xD00D00 (512 hex digits) on drive Tape0)\n");
+		fprintf(stderr, "    spti Tape0 D00D00 BackupTape1 (Use RSA-2048 wrapped key 0xD00D00 (512 hex digits) and KAD BackupTape1 on drive Tape0)\n");
 		fprintf(stderr, "    spti Tape0 weak               (Use a hardcoded really weak test key on drive Tape0)\n");
 		fprintf(stderr, "    spti Tape0 none               (Disable encryption and decryption on drive Tape0)\n");
 		return;
@@ -237,22 +238,24 @@ main(
 	BOOL capTapeEncryption = FALSE;
 	BOOL capRfc3447 = FALSE;
 	INT16 aesGcmAlgorithmIndex = -1; // Index is 8 bytes unsigned (UCHAR) in SCSI, extra byte is used for status
-	int wrappedDescriptorsLength = 0;
+	UINT16 wrappedDescriptorsLength = 0;
 	PUCHAR wrappedDescriptors = NULL;
 	int keyType = -1;
 	int keyFormat = -1;
 	int keyLength = 0;
 	PUCHAR key = NULL;
 	BOOL testKey = FALSE;
-	BOOL noKey = FALSE;
+	BOOL clearKey = FALSE;
 	PUCHAR keyAssociatedData = NULL;
 
 	if (argc > 2) {
 		if (strcmp(argv[2], "weak") == 0) {
 			testKey = TRUE;
+			keyFormat = SPIN_TAPE_KEY_FORMAT_PLAIN;
 		}
 		else if (strcmp(argv[2], "none") == 0) {
-			noKey = TRUE;
+			clearKey = TRUE;
+			keyFormat = SPIN_TAPE_KEY_FORMAT_PLAIN;
 		}
 		else {
 			key = (PUCHAR)argv[2];
@@ -478,225 +481,65 @@ main(
 				}
 			}
 		}
-	}
 
 
-	/*
-	* Send a wrapped key to the drive if wrapped keys are supported and supplied key is in wrapped format
-	*
-	* CDB: Security Protocol Out, Set Data Encryption page, Key Format 0x02 (Wrapped)
-	*/
-	if (capRfc3447 && keyFormat == SPIN_TAPE_KEY_FORMAT_WRAPPED && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	{
-		int wrappedKeyLength = keyLength / 2;
-		printf("Wrapped key length: %d bytes\n", wrappedKeyLength);
-
-		if (aesGcmAlgorithmIndex == -1)
+		/*
+		* CDB: Security Protocol Out, Set Data Encryption page
+		*/
+		if (key != NULL || testKey || clearKey)
 		{
-			fprintf(stderr, "AES-GCM algorithm index not found.\n\n");
-			goto Cleanup;
-		}
-
-		printf("AES-GCM algorithm index: 0x%02x\n\n", aesGcmAlgorithmIndex);
-
-		int kadTotalLength = 0;
-		PPLAIN_KEY_DESCRIPTOR kad = NULL;
-		if (!noKey && keyAssociatedData != NULL) {
-			int kadLength = (int)strlen((char*)keyAssociatedData);
-			if (encryptionCapabilities->AuthKadFixedLength || kadLength > encryptionCapabilities->AuthKadMaxLength)
+			printf("Generating Set Data Encryption page...\n");
+			if (aesGcmAlgorithmIndex == -1)
 			{
-				fprintf(stderr, "Key-Associated Data (KAD) must currently be %d ASCII characters%s - other options are not implemented.\n", encryptionCapabilities->AuthKadMaxLength, encryptionCapabilities->AuthKadFixedLength ? "" : " or fewer");
+				fprintf(stderr, "* AES-GCM algorithm index not found.\n");
 				goto Cleanup;
 			}
-			kadTotalLength = FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[kadLength]);
-			kad = malloc(kadTotalLength);
-			ZeroMemory(kad, sizeof(PLAIN_KEY_DESCRIPTOR));
-			kad->Type = SPOUT_TAPE_KAD_PLAIN_TYPE_AUTH; // TODO: Check length is less than *Maximum Authenticated Key-Associated Data Bytes*
-			kad->Length[0] = (kadLength & 0xFF00) >> 8;
-			kad->Length[1] = kadLength & 0xFF;
-			memcpy(kad->Descriptor, keyAssociatedData, kadLength);
-			printf("KAD Descriptor with length %d:\n\n", kadTotalLength);
-			PrintDataBuffer((PUCHAR)kad, kadTotalLength);
-		}
-
-		KEY_HEADER keyHeader = { 0 };
-		keyHeader.PageCode[0] = (SPOUT_TAPE_SET_DATA_ENCRYPTION >> 8) & 0xFF;
-		keyHeader.PageCode[1] = SPOUT_TAPE_SET_DATA_ENCRYPTION & 0xFF;
-		keyHeader.Scope = 0x2;
-		//keyHeader.CKOD = 0b1;
-		//keyHeader.CKORP = 0b1;
-		//keyHeader.CKORL = 0b1;
-		keyHeader.EncryptionMode = 0x2;
-		keyHeader.DecriptionMode = 0x2;
-		keyHeader.AlgorithmIndex = (UCHAR)aesGcmAlgorithmIndex;
-		keyHeader.KeyFormat = (UCHAR)keyFormat;
-		if (kad != NULL) {
-			keyHeader.KADFormat = SPOUT_TAPE_KAD_FORMAT_ASCII;
-		}
-
-		int wrappedKeyTotalLength = 4 + wrappedDescriptorsLength + 2 + wrappedKeyLength + 2;
-		PUCHAR wrappedKey = calloc(wrappedKeyTotalLength, 1);
-		wrappedKey[0] = (keyType >> 8) & 0xFF;
-		wrappedKey[1] = keyType & 0xFF;
-		wrappedKey[2] = (wrappedDescriptorsLength >> 8) & 0xFF;
-		wrappedKey[3] = wrappedDescriptorsLength & 0xFF;
-		if (wrappedDescriptors != NULL)
-		{
-			memcpy(wrappedKey + 4, wrappedDescriptors, wrappedDescriptorsLength);
-			wrappedKey[4 + wrappedDescriptorsLength + 0] = (wrappedKeyLength >> 8) & 0xFF;
-			wrappedKey[4 + wrappedDescriptorsLength + 1] = wrappedKeyLength & 0xFF;
-			UCHAR temp[3] = { 0 };
-			for (int i = 0; i < wrappedKeyLength; i++)
+			if (keyFormat == SPIN_TAPE_KEY_FORMAT_WRAPPED && !capRfc3447)
 			{
-				memcpy(temp, &key[i * 2], 2);
-				wrappedKey[4 + wrappedDescriptorsLength + 2 + i] = strtol((char*)temp, NULL, 16) & 0xFF;
-			}
-		}
-
-		int pageLength = sizeof(KEY_HEADER) - 4 + 2 + wrappedKeyTotalLength + kadTotalLength;
-		keyHeader.PageLength[0] = (pageLength >> 8) & 0xFF;
-		keyHeader.PageLength[1] = pageLength & 0xFF;
-
-		length = ResetSrbOut(psptwb_ex, CDB12GENERIC_LENGTH);
-		struct _SECURITY_PROTOCOL_OUT spout = { '\0' };
-		spout.OperationCode = SCSIOP_SECURITY_PROTOCOL_OUT;
-		spout.SecurityProtocol = SECURITY_PROTOCOL_TAPE; // tape encryption
-		spout.SecurityProtocolSpecific[0] = (SPOUT_TAPE_SET_DATA_ENCRYPTION >> 8) & 0xFF; // device server key wrapping public key page
-		spout.SecurityProtocolSpecific[1] = SPOUT_TAPE_SET_DATA_ENCRYPTION & 0xFF;
-		int allocationLength = 4 + pageLength;
-		spout.AllocationLength[0] = (allocationLength >> 24) & 0xFF;
-		spout.AllocationLength[1] = (allocationLength >> 16) & 0xFF;
-		spout.AllocationLength[2] = (allocationLength >> 8) & 0xFF;
-		spout.AllocationLength[3] = allocationLength & 0xFF;
-		memcpy(psptwb_ex->spt.Cdb, &spout, sizeof(struct _SECURITY_PROTOCOL_OUT));
-		printf("Security Protocol Out:\n\n");
-		PrintDataBuffer(psptwb_ex->spt.Cdb, sizeof(spout));
-		psptwb_ex->spt.DataOutTransferLength = allocationLength;
-
-		memcpy(psptwb_ex->ucDataBuf, &keyHeader, sizeof(keyHeader));
-		psptwb_ex->ucDataBuf[sizeof(keyHeader) + 0] = (wrappedKeyTotalLength >> 8) & 0xFF;
-		psptwb_ex->ucDataBuf[sizeof(keyHeader) + 1] = wrappedKeyTotalLength & 0xFF;
-		if (wrappedKey != NULL) {
-			memcpy(psptwb_ex->ucDataBuf + sizeof(keyHeader) + 2, wrappedKey, wrappedKeyTotalLength);
-			free(wrappedKey);
-		}
-		if (kad != NULL) {
-			memcpy(psptwb_ex->ucDataBuf + sizeof(keyHeader) + 2 + wrappedKeyTotalLength, kad, kadTotalLength);
-			free(kad);
-		}
-
-		printf("SRB length: %d (0x%02x)\n", length, length);
-		printf("Buffer length: %d (0x%02x)\n\n", allocationLength, allocationLength);
-		printf("Buffer:\n\n");
-		PrintDataBuffer((PUCHAR)psptwb_ex->ucDataBuf, psptwb_ex->spt.DataOutTransferLength);
-
-		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-
-		CheckStatus(fileHandle, psptwb_ex, status, returned, length);
-	}
-
-	/*
-	* If command parameter for key is set to string "weak", set a hardcoded weak key
-	* If command parameter for key is set to string "none", remove keys from drive
-	*
-	* CDB: Security Protocol Out, Set Data Encryption page, Key Format 0x00 (Plain)
-	*/
-	if ((testKey || noKey) && srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	{
-		if (aesGcmAlgorithmIndex == -1)
-		{
-			fprintf(stderr, "AES-GCM algorithm index not found.\n\n");
-			goto Cleanup;
-		}
-
-		printf("AES-GCM algorithm index: 0x%02x\n\n", aesGcmAlgorithmIndex);
-
-		int kadTotalLength = 0;
-		PPLAIN_KEY_DESCRIPTOR kad = NULL;
-		if (!noKey && keyAssociatedData != NULL) {
-			int kadLength = (int)strlen((char*)keyAssociatedData);
-			if (encryptionCapabilities->AuthKadFixedLength || kadLength > encryptionCapabilities->AuthKadMaxLength)
-			{
-				fprintf(stderr, "Key-Associated Data (KAD) must currently be %d ASCII characters%s - other options are not implemented.\n", encryptionCapabilities->AuthKadMaxLength, encryptionCapabilities->AuthKadFixedLength ? "" : " or fewer");
+				fprintf(stderr, "* Wrapped keys are not supported by the device.\n");
 				goto Cleanup;
 			}
-			kadTotalLength = FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[kadLength]);
-			kad = malloc(kadTotalLength);
-			ZeroMemory(kad, sizeof(PLAIN_KEY_DESCRIPTOR));
-			kad->Type = SPOUT_TAPE_KAD_PLAIN_TYPE_AUTH; // TODO: Check length is less than *Maximum Authenticated Key-Associated Data Bytes*
-			kad->Length[0] = (kadLength & 0xFF00) >> 8;
-			kad->Length[1] = kadLength & 0xFF;
-			memcpy(kad->Descriptor, keyAssociatedData, kadLength);
-			printf("KAD Descriptor with length %d:\n\n", kadTotalLength);
-			PrintDataBuffer((PUCHAR)kad, kadTotalLength);
-		}
-
-		int plainKeyTotalLength = noKey ? FIELD_OFFSET(PLAIN_KEY, Key[0]) : FIELD_OFFSET(PLAIN_KEY, KADList[kadTotalLength]);
-		PPLAIN_KEY plainKey = malloc(plainKeyTotalLength);
-		ZeroMemory(plainKey, plainKeyTotalLength);
-		plainKey->PageCode[0] = (SPOUT_TAPE_SET_DATA_ENCRYPTION >> 8) & 0xFF;
-		plainKey->PageCode[1] = SPOUT_TAPE_SET_DATA_ENCRYPTION & 0xFF;
-		plainKey->Scope = 0x2;
-		//plainKey->CKOD = 0b1;
-		//plainKey->CKORP = 0b1;
-		//plainKey->CKORL = 0b1;
-		plainKey->EncryptionMode = noKey ? 0x0 : 0x2;
-		plainKey->DecriptionMode = noKey ? 0x0 : 0x2;
-		plainKey->AlgorithmIndex = (UCHAR)aesGcmAlgorithmIndex;
-		if (keyFormat >= 0)
-		{
-			plainKey->KeyFormat = (UCHAR)keyFormat;
-		}
-		plainKey->KADFormat = keyAssociatedData != NULL ? 0x0 : SPOUT_TAPE_KAD_FORMAT_ASCII;
-		plainKey->KeyLength[1] = noKey ? 0x0 : 0x20;
-
-		if (!noKey) {
-			for (int i = 0; i < 32; i++)
+			if (testKey)
 			{
-				plainKey->Key[i] = (UCHAR)(i + 0x10);
+				UINT16 testKeyLength = 32;
+				key = calloc(testKeyLength, sizeof(UCHAR));
+				if (key != NULL)
+				{
+					for (int i = 0; i < testKeyLength; i++)
+					{
+						key[i] = (UCHAR)(i + 0x10);
+					}
+					keyLength = testKeyLength;
+				}
 			}
-			memcpy(plainKey->KADList, kad, kadTotalLength);
-			free(kad);
+
+			printf("* AES-GCM algorithm index: 0x%02x\n", aesGcmAlgorithmIndex);
+
+			PUCHAR keyField = NULL;
+			UINT16 keyFieldLength = ProcessKey(keyFormat, keyType, keyLength, key, wrappedDescriptorsLength, wrappedDescriptors, &keyField);
+			printf("  * Key field length: %u\n", keyFieldLength);
+
+			PPLAIN_KEY_DESCRIPTOR kadField = NULL;
+			UINT16 keyAssociatedDataLength = keyAssociatedData == NULL ? 0 : (UINT16)strlen((PCHAR)keyAssociatedData);
+			if (encryptionCapabilities->AuthKadFixedLength || keyAssociatedDataLength > encryptionCapabilities->AuthKadMaxLength)
+			{
+				fprintf(stderr, "  * Key-Associated Data (KAD) must currently be %d ASCII characters%s - other options are not implemented.\n", encryptionCapabilities->AuthKadMaxLength, encryptionCapabilities->AuthKadFixedLength ? "" : " or fewer");
+				goto Cleanup;
+			}
+			UINT16 kadFieldLength = ProcessKad(clearKey, keyAssociatedDataLength, keyAssociatedData, &kadField);
+
+			UINT32 allocationLength = FIELD_OFFSET(KEY_HEADER, KeyAndKADList[keyFieldLength + kadFieldLength]);
+			length = CreateSecurityProtocolOutSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPOUT_TAPE_SET_DATA_ENCRYPTION);
+			if (length == 0) { goto Cleanup; }
+
+			SetDataEncryption(psptwb_ex, allocationLength, (UCHAR)aesGcmAlgorithmIndex, clearKey, (UCHAR)keyFormat, keyFieldLength, keyField, kadFieldLength, kadField);
+			printf("* Sending CDB\n");
+			status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+			printf("* CDB sent\n\n");
+			CheckStatus(fileHandle, psptwb_ex, status, returned, length);
 		}
 
-		plainKey->PageLength[0] = ((plainKeyTotalLength - 4) & 0xFF00) >> 8;
-		plainKey->PageLength[1] = (plainKeyTotalLength - 4) & 0xFF;
-		printf("Set plain key with %d byte KAD list:\n\n", kadTotalLength);
-		PrintDataBuffer((PUCHAR)plainKey, plainKeyTotalLength);
 
-		length = ResetSrbOut(psptwb_ex, CDB12GENERIC_LENGTH);
-		struct _SECURITY_PROTOCOL_OUT spout = { '\0' };
-		spout.OperationCode = SCSIOP_SECURITY_PROTOCOL_OUT;
-		spout.SecurityProtocol = SECURITY_PROTOCOL_TAPE; // tape encryption
-		spout.SecurityProtocolSpecific[0] = (SPOUT_TAPE_SET_DATA_ENCRYPTION >> 8) & 0xFF; // device server key wrapping public key page
-		spout.SecurityProtocolSpecific[1] = SPOUT_TAPE_SET_DATA_ENCRYPTION & 0xFF;
-		spout.AllocationLength[0] = (plainKeyTotalLength >> 24) & 0xFF;
-		spout.AllocationLength[1] = (plainKeyTotalLength >> 16) & 0xFF;
-		spout.AllocationLength[2] = (plainKeyTotalLength >> 8) & 0xFF;
-		spout.AllocationLength[3] = plainKeyTotalLength & 0xFF;
-		memcpy(psptwb_ex->spt.Cdb, &spout, sizeof(struct _SECURITY_PROTOCOL_OUT));
-		printf("Security Protocol Out:\n\n");
-		PrintDataBuffer(psptwb_ex->spt.Cdb, sizeof(spout));
-
-		memcpy(psptwb_ex->ucDataBuf, plainKey, plainKeyTotalLength);
-		free(plainKey);
-		psptwb_ex->spt.DataOutTransferLength = plainKeyTotalLength;
-
-		printf("Buffer length: %d (0x%02x)\n\n", plainKeyTotalLength, plainKeyTotalLength);
-		printf("SRB length: %d (0x%02x)\n\n", length, length);
-
-		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-
-		printf("Cdb:\n\n");
-		PrintDataBuffer(psptwb_ex->spt.Cdb, psptwb_ex->spt.CdbLength);
-		printf("Buffer:\n\n");
-		PrintDataBuffer((PUCHAR)psptwb_ex->ucDataBuf, psptwb_ex->spt.DataOutTransferLength);
-
-		CheckStatus(fileHandle, psptwb_ex, status, returned, length);
-	}
-
-	if (srbType == SRB_TYPE_STORAGE_REQUEST_BLOCK)
-	{
 		/*
 		* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Status page
 		*/
@@ -706,7 +549,7 @@ main(
 
 		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
-			int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
+			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 			if (pageCode == SPIN_TAPE_ENCRYPTION_STATUS) {
 				ParseDataEncryptionStatus((PDATA_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, aesGcmAlgorithmIndex);
 			}
@@ -720,7 +563,7 @@ main(
 
 		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
-			int pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
+			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 			if (pageCode == SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS) {
 				ParseNextBlockEncryptionStatus((PNEXT_BLOCK_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, aesGcmAlgorithmIndex);
 			}
@@ -743,6 +586,10 @@ Cleanup:
 	if (psptwb_ex != NULL) {
 		free(psptwb_ex);
 	}
+	if (testKey && key != NULL)
+	{
+		free(key);
+	}
 	CloseHandle(fileHandle);
 	if (length == 0) {
 		fprintf(stderr, "An SRB was not successfully created.");
@@ -761,6 +608,25 @@ ULONG
 CreateSecurityProtocolInSrb(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR securityProtocol, UCHAR pageCode)
 {
 	ULONG length = ResetSrbIn(psptwb_ex, SCSIOP_SECURITY_PROTOCOL_IN);
+	if (length == 0) { return length; }
+	psptwb_ex->spt.Cdb[1] = securityProtocol;
+	psptwb_ex->spt.Cdb[2] = (pageCode << 8) & 0xFF00;
+	psptwb_ex->spt.Cdb[3] = pageCode & 0xFF;
+
+	return length;
+}
+
+/// <summary>
+/// Create a STORAGE_REQUEST_BLOCK for CDB OpCode Security Protocol Out
+/// </summary>
+/// <param name="psptwb_ex">Pointer to a SCSI_PASS_THROUGH_WITH_BUFFERS_EX struct (wrapper of SCSI_PASS_THROUGH_EX)</param>
+/// <param name="securityProtocol">The value for Security Protocol field</param>
+/// <param name="pageCode">The value for the Security Protocol Specific field (parameter currently limited to 0x00 to 0xFF)</param>
+/// <returns>Length of the SRB in bytes</returns>
+ULONG
+CreateSecurityProtocolOutSrb(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR securityProtocol, UCHAR pageCode)
+{
+	ULONG length = ResetSrbOut(psptwb_ex, SCSIOP_SECURITY_PROTOCOL_OUT);
 	if (length == 0) { return length; }
 	psptwb_ex->spt.Cdb[1] = securityProtocol;
 	psptwb_ex->spt.Cdb[2] = (pageCode << 8) & 0xFF00;
@@ -1045,7 +911,7 @@ ParseDataEncryptionCapabilities(PDATA_ENCRYPTION_CAPABILITIES pBuffer, PDATA_ENC
 /// <param name="wrappedDescriptorsPtr">A pointer to a character array that will point to a character array containing the wrapped descriptors</param>
 /// <returns>FALSE if there was a problem with the public key, otherwise TRUE</returns>
 BOOL
-ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY deviceServerKeyWrappingPublicKey, UINT16 logicalUnitIdentifierLength, PUCHAR logicalUnitIdentifier, int* wrappedDescriptorsLength, PUCHAR* wrappedDescriptorsPtr)
+ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY deviceServerKeyWrappingPublicKey, UINT16 logicalUnitIdentifierLength, PUCHAR logicalUnitIdentifier, PUINT16 wrappedDescriptorsLength, PUCHAR* wrappedDescriptorsPtr)
 {
 	// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
 	deviceServerKeyWrappingPublicKey->PageCode = ntohs(deviceServerKeyWrappingPublicKey->PageCode);
@@ -1169,7 +1035,7 @@ ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY dev
 		// The length for a wrapped key descriptor containing the number 256
 		int wrappedKeyLengthDescriptorLength = FIELD_OFFSET(WRAPPED_KEY_DESCRIPTOR, Descriptor[wrappedKeyLengthLength]);
 		// The combined length of all wrapped key descriptors
-		*wrappedDescriptorsLength = deviceServerIdentificationLength + wrappedKeyLengthDescriptorLength;
+		*wrappedDescriptorsLength = (UINT16)(deviceServerIdentificationLength + wrappedKeyLengthDescriptorLength);
 		// Allocate memory to store the combined descriptors
 		PUCHAR wrappedDescriptors = calloc(*wrappedDescriptorsLength, 1);
 		// Update the pointer outside the function
@@ -1499,6 +1365,187 @@ ParseCertificateData(PCERTIFICATE_DATA certificateData)
 }
 
 /// <summary>
+/// Set the remaining fields in a Set Data Encryption CDB
+/// </summary>
+/// <param name="psptwb_ex">Pointer to a SCSI_PASS_THROUGH_WITH_BUFFERS_EX struct (wrapper of SCSI_PASS_THROUGH_EX)</param>
+/// <param name="allocationLength">The size of the output buffer in bytes (must match total length of page including Page Code and Page Length fields)</param>
+/// <param name="aesGcmAlgorithmIndex">The index of the AES256-GCM algorithm in the device</param>
+/// <param name="clearKey">TRUE if encryption keys are being cleared, FALSE if they are being set</param>
+/// <param name="keyFormat">The key format</param>
+/// <param name="keyFieldLength">The length of the Key field character array</param>
+/// <param name="keyField">A character array containing a Key field</param>
+/// <param name="kadFieldLength">The size of the PPLAIN_KEY_DESCRIPTOR struct in bytes</param>
+/// <param name="kad">A pointer to a PPLAIN_KEY_DESCRIPTOR struct</param>
+VOID
+SetDataEncryption(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UINT32 allocationLength, UCHAR aesGcmAlgorithmIndex, BOOL clearKey, UCHAR keyFormat, UINT16 keyFieldLength, PUCHAR keyField, int kadFieldLength, PPLAIN_KEY_DESCRIPTOR kad)
+{
+	printf("* Finalising CDB...\n");
+	psptwb_ex->spt.Cdb[6] = (allocationLength >> 24) & 0xFF;
+	psptwb_ex->spt.Cdb[7] = (allocationLength >> 16) & 0xFF;
+	psptwb_ex->spt.Cdb[8] = (allocationLength >> 8) & 0xFF;
+	psptwb_ex->spt.Cdb[9] = allocationLength & 0xFF;
+	UINT16 pageLength = (UINT16)(allocationLength - 4);
+	psptwb_ex->spt.DataOutTransferLength = 4 + (size_t)pageLength;
+
+	PKEY_HEADER keyHeader = calloc(4 + (size_t)pageLength, sizeof(UCHAR));
+	if (keyHeader != NULL)
+	{
+		keyHeader->PageCode = htons(SPOUT_TAPE_SET_DATA_ENCRYPTION);
+		printf("  * Page Length: 0x%04x (%d bytes)\n", pageLength, pageLength);
+		keyHeader->PageLength = htons(pageLength);
+		keyHeader->Scope = 0x2;
+		keyHeader->EncryptionMode = clearKey ? 0x0 : 0x2;
+		keyHeader->DecriptionMode = clearKey ? 0x0 : 0x2;
+		keyHeader->AlgorithmIndex = aesGcmAlgorithmIndex;
+		keyHeader->KeyFormat = (UCHAR)keyFormat;
+		printf("  * Key format: 0x%02x\n", keyFormat);
+		if (kad != NULL) {
+			keyHeader->KADFormat = SPOUT_TAPE_KAD_FORMAT_ASCII;
+		}
+		printf("  * Key field length: 0x%04x (%d bytes)\n", keyFieldLength, keyFieldLength);
+		keyHeader->KeyLength = htons(keyFieldLength);
+		if (keyField != NULL)
+		{
+			memcpy(keyHeader->KeyAndKADList, keyField, keyFieldLength);
+			free(keyField);
+		}
+		if (kad != NULL)
+		{
+			memcpy(keyHeader->KeyAndKADList + keyFieldLength, kad, kadFieldLength);
+			free(kad);
+		}
+		memcpy(psptwb_ex->ucDataBuf, keyHeader, allocationLength);
+		free(keyHeader);
+	}
+}
+
+/// <summary>
+/// Process Key-Associated Data and generate a KAD field
+/// </summary>
+/// <param name="clearKey">TRUE if encryption keys are being cleared, FALSE if they are being set</param>
+/// <param name="keyAssociatedDataLength">The length of the Key-Associated Data character array</param>
+/// <param name="keyAssociatedData">A character array containing Key-Associated Data</param>
+/// <param name="ppKadField">A pointer to a PPLAIN_KEY_DESCRIPTOR struct that will point at the new PPLAIN_KEY_DESCRIPTOR</param>
+/// <returns>The length of the KAD field</returns>
+UINT16
+ProcessKad(BOOL clearKey, UINT16 keyAssociatedDataLength, PUCHAR keyAssociatedData, PPLAIN_KEY_DESCRIPTOR* ppKadField)
+{
+	printf("* Processing KAD...\n");
+	PPLAIN_KEY_DESCRIPTOR kadField = NULL;
+	UINT16 kadFieldLength = 0;
+	if (!clearKey && keyAssociatedData != NULL) {
+
+		kadFieldLength = (UINT16)FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[keyAssociatedDataLength]);
+		kadField = calloc(kadFieldLength, sizeof(UCHAR));
+		if (kadField != NULL)
+		{
+			*ppKadField = kadField;
+			kadField->Type = SPOUT_TAPE_KAD_PLAIN_TYPE_AUTH;
+			kadField->Length[0] = (keyAssociatedDataLength & 0xFF00) >> 8;
+			kadField->Length[1] = keyAssociatedDataLength & 0xFF;
+			memcpy(kadField->Descriptor, keyAssociatedData, keyAssociatedDataLength);
+			printf("  * KAD Descriptor with length %d\n", kadFieldLength);
+			//PrintDataBuffer((PUCHAR)kad, kadTotalLength);
+		}
+	}
+	return kadFieldLength;
+}
+
+/// <summary>
+/// Process an encryption key and generate a Key field
+/// </summary>
+/// <param name="keyFormat">The key format</param>
+/// <param name="keyType">The key type</param>
+/// <param name="keyLength">The length of the key character array</param>
+/// <param name="key">A character array containing the key</param>
+/// <param name="wrappedDescriptorsLength">The length of the wrapped key descriptor character array</param>
+/// <param name="wrappedDescriptors">A character array containing wrapped key descriptors</param>
+/// <param name="pKeyField">A pointer to a character array for storing the Key field</param>
+/// <returns>The length of the key field</returns>
+UINT16
+ProcessKey(int keyFormat, int keyType, int keyLength, PUCHAR key, UINT16 wrappedDescriptorsLength, PUCHAR wrappedDescriptors, PUCHAR* pKeyField)
+{
+	printf("* Processing key...\n");
+	UINT16 keyFieldLength = 0;
+	PUCHAR keyField = NULL;
+	// LTO encryption uses 256 bit (32 byte) keys; assume larger keys are hex rather than binary
+	BOOL keyIsHex = keyLength > 32;
+	if (keyIsHex) {
+		keyLength = keyLength / 2;
+	}
+
+	if (keyFormat == SPIN_TAPE_KEY_FORMAT_PLAIN)
+	{
+		keyFieldLength = (UINT16)keyLength;
+		keyField = calloc(keyFieldLength, sizeof(UCHAR));
+		if (keyField == NULL)
+		{
+			return 0;
+		}
+		*pKeyField = keyField;
+		if (keyIsHex)
+		{
+			UCHAR temp[3] = { 0 };
+			for (int i = 0; i < keyLength; i++)
+			{
+				memcpy(temp, &key[i * 2], 2);
+				keyField[i] = strtol((char*)temp, NULL, 16) & 0xFF;
+			}
+		}
+		else
+		{
+			memcpy(keyField, key, keyLength);
+		}
+	}
+	else if (keyFormat == SPIN_TAPE_KEY_FORMAT_WRAPPED)
+	{
+		if (keyFormat < 0 || keyFormat > 0xFFFF ||
+			keyType < 0 || keyType > 0xFFFF ||
+			keyLength < 0 || keyLength > 0xFFFF)
+		{
+			fprintf(stderr, "  * Error: A parameter to ProcessKey() was out of UINT16 bounds.\n");
+		}
+
+		UINT16 offset = 0;
+		UINT16 parameterSet, labelLength, wrappedKeyLength, signatureLength = 0;
+		keyFieldLength = (UINT16)(sizeof(parameterSet) + sizeof(labelLength) + wrappedDescriptorsLength + sizeof(wrappedKeyLength) + keyLength + sizeof(signatureLength));
+		keyField = calloc(keyFieldLength, sizeof(UCHAR));
+		if (keyField == NULL)
+		{
+			return 0;
+		}
+		*pKeyField = keyField;
+
+		parameterSet = htons(keyType & 0xFFFF);
+		memcpy(keyField + offset, &parameterSet, sizeof(parameterSet));
+		offset += sizeof(parameterSet);
+
+		labelLength = htons(wrappedDescriptorsLength & 0xFFFF);
+		memcpy(keyField + offset, &labelLength, sizeof(labelLength));
+		offset += sizeof(labelLength);
+		memcpy(keyField + offset, wrappedDescriptors, wrappedDescriptorsLength);
+		offset += wrappedDescriptorsLength;
+
+		wrappedKeyLength = htons(keyLength & 0xFFFF);
+		memcpy(keyField + offset, &wrappedKeyLength, sizeof(wrappedKeyLength));
+		offset += sizeof(wrappedKeyLength);
+
+		UCHAR temp[3] = { 0 };
+		for (int i = 0; i < keyLength; i++)
+		{
+			memcpy(temp, &key[i * 2], 2);
+			keyField[offset + i] = strtol((char*)temp, NULL, 16) & 0xFF;
+		}
+		offset += (UINT16)keyLength;
+
+		signatureLength = htons(0);
+		memcpy(keyField + offset, &signatureLength, sizeof(signatureLength));
+	}
+
+	return keyField != NULL ? keyFieldLength : 0;
+}
+
+/// <summary>
 /// Convert a SCSI OpCode to CDB length in bytes (does not support variable length CDBs)
 /// </summary>
 /// <param name="opCode">SCSI OpCode</param>
@@ -1589,8 +1636,11 @@ ResetSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR opCode)
 /// <param name="opCode">SCSI OpCode</param>
 /// <returns>Length of the SRB in bytes</returns>
 ULONG
-ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength)
+ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR opCode)
 {
+	UCHAR cdbLength = GetCdbLength(opCode);
+	if (cdbLength == 0) { return cdbLength; }
+
 	ZeroMemory(psptwb_ex, sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
 	psptwb_ex->spt.Version = 0;
 	psptwb_ex->spt.Length = sizeof(SCSI_PASS_THROUGH_EX);
@@ -1615,6 +1665,14 @@ ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength)
 	psptwb_ex->spt.DataOutBufferOffset =
 		offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX, ucDataBuf);
 	psptwb_ex->spt.DataInBufferOffset = 0;
+	switch (opCode)
+	{
+	case SCSIOP_SECURITY_PROTOCOL_OUT:
+		psptwb_ex->spt.Cdb[0] = opCode;
+		break;
+	default:
+		break;
+	}
 	return offsetof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX, ucDataBuf) +
 		psptwb_ex->spt.DataOutTransferLength;
 }

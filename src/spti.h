@@ -205,49 +205,28 @@ typedef struct _NEXT_BLOCK_ENCRYPTION_STATUS {
 #pragma pack(pop)
 
 typedef struct _KEY_HEADER {
-    UCHAR PageCode[2];
-    UCHAR PageLength[2];
+    UINT16 PageCode; // Network Byte Order
+    UINT16 PageLength; // Network Byte Order
     UCHAR Lock : 1; // LSb of [4]
     UCHAR Reserved1 : 4;
     UCHAR Scope : 3; // MSb of [4]
-    UCHAR CKORL : 1; // LSb of [5]
-    UCHAR CKORP : 1;
-    UCHAR CKOD : 1;
-    UCHAR SDK : 1;
-    UCHAR RDMC : 2;
-    UCHAR CEEM : 2; // MSb of [5];
+    UCHAR ClearKeyOnReservationLoss : 1; // LSb of [5]
+    UCHAR ClearKeyOnReservationPreempted : 1;
+    UCHAR ClearKeyOnDemount : 1;
+    UCHAR SupplementalDecryptionKey : 1;
+    UCHAR RawDecryptionModeControl : 2;
+    UCHAR CheckExternalEncryptionMode : 2; // MSb of [5];
     UCHAR EncryptionMode;
     UCHAR DecriptionMode;
     UCHAR AlgorithmIndex;
     UCHAR KeyFormat;
     UCHAR KADFormat;
     UCHAR Reserved2[7];
-} KEY_HEADER, *PKEY_HEADER;
-
-typedef struct _PLAIN_KEY {
-    UCHAR PageCode[2];
-    UCHAR PageLength[2];
-    UCHAR Lock : 1; // LSb of [4]
-    UCHAR Reserved1 : 4;
-    UCHAR Scope : 3; // MSb of [4]
-    UCHAR CKORL : 1; // LSb of [5]
-    UCHAR CKORP : 1;
-    UCHAR CKOD : 1;
-    UCHAR SDK : 1;
-    UCHAR RDMC : 2;
-    UCHAR CEEM : 2; // MSb of [5];
-    UCHAR EncryptionMode;
-    UCHAR DecriptionMode;
-    UCHAR AlgorithmIndex;
-    UCHAR KeyFormat;
-    UCHAR KADFormat;
-    UCHAR Reserved2[7];
-    UCHAR KeyLength[2];
-    UCHAR Key[32];
+    UINT16 KeyLength;
 #if !defined(__midl)
-    UCHAR KADList[0];
+    UCHAR KeyAndKADList[0];
 #endif
-} PLAIN_KEY, *PPLAIN_KEY;
+} KEY_HEADER, *PKEY_HEADER;
 
 typedef struct _PLAIN_KEY_DESCRIPTOR {
     UCHAR Type;
@@ -316,6 +295,9 @@ typedef struct _SENSE_INFO {
 ULONG
 CreateSecurityProtocolInSrb(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR securityProtocol, UCHAR pageCode);
 
+ULONG
+CreateSecurityProtocolOutSrb(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR securityProtocol, UCHAR pageCode);
+
 BOOL
 SendSrb(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG length, PULONG returned);
 
@@ -338,7 +320,7 @@ VOID
 ParseDataEncryptionCapabilities(PDATA_ENCRYPTION_CAPABILITIES pBuffer, PDATA_ENCRYPTION_CAPABILITIES* ppEncryptionCapabilities, PINT16 pAesGcmAlgorithmIndex);
 
 BOOL
-ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY deviceServerKeyWrappingPublicKey, UINT16 logicalUnitIdentifierLength, PUCHAR logicalUnitIdentifier, int* wrappedDescriptorsLength, PUCHAR* wrappedDescriptors);
+ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY deviceServerKeyWrappingPublicKey, UINT16 logicalUnitIdentifierLength, PUCHAR logicalUnitIdentifier, PUINT16 wrappedDescriptorsLength, PUCHAR* wrappedDescriptors);
 
 VOID
 ParseDeviceIdentifiers(PVPD_IDENTIFICATION_PAGE deviceIdentifiers, PUINT16 pLogicalUnitIdentifierLength, PUCHAR* ppLogicalUnitIdentifier);
@@ -355,6 +337,15 @@ ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, IN
 VOID
 ParseCertificateData(PCERTIFICATE_DATA certificateData);
 
+VOID
+SetDataEncryption(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UINT32 allocationLength, UCHAR aesGcmAlgorithmIndex, BOOL clearKey, UCHAR keyFormat, UINT16 keyFieldLength, PUCHAR keyField, int kadFieldLength, PPLAIN_KEY_DESCRIPTOR kad);
+
+UINT16
+ProcessKad(BOOL clearKey, UINT16 keyAssociatedDataLength, PUCHAR keyAssociatedData, PPLAIN_KEY_DESCRIPTOR* ppKadField);
+
+UINT16
+ProcessKey(int keyFormat, int keyType, int keyLength, PUCHAR key, UINT16 wrappedDescriptorsLength, PUCHAR wrappedDescriptors, PUCHAR* pKeyField);
+
 UCHAR
 GetCdbLength(UCHAR opCode);
 
@@ -362,7 +353,7 @@ ULONG
 ResetSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR opCode);
 
 ULONG
-ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, int cdbLength);
+ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR opCode);
 
 PCHAR
 GetSecurityProtocolDescription(UCHAR securityProtocol);
