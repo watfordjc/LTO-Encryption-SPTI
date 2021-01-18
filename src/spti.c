@@ -26,6 +26,8 @@ Revision History:
 --*/
 
 #include <windows.h>
+#pragma comment(lib, "SetupAPI.lib")
+#include <setupapi.h>
 #pragma comment(lib, "Ws2_32.lib")
 #include <WinSock2.h>
 #include <devioctl.h>
@@ -203,7 +205,8 @@ main(
 
 {
 	BOOL status = 0;
-	DWORD accessMode = 0, shareMode = 0;
+	DWORD accessMode = GENERIC_WRITE | GENERIC_READ;
+	DWORD shareMode = FILE_SHARE_READ;
 	HANDLE fileHandle = NULL;
 	ULONG alignmentMask = 0; // default == no alignment requirement
 	UCHAR srbType = SRB_TYPE_SCSI_REQUEST_BLOCK; // default == SRB_TYPE_SCSI_REQUEST_BLOCK
@@ -211,27 +214,8 @@ main(
 	PUCHAR pUnAlignedBuffer = NULL;
 	PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex = calloc(1, sizeof(SCSI_PASS_THROUGH_WITH_BUFFERS_EX));
 	CHAR string[NAME_COUNT];
+	PCHAR* devicePath = calloc(1, sizeof(PCHAR));
 
-	ULONG length = 0,
-		errorCode = 0,
-		returned = 0;
-
-	if ((argc < 2) || (argc > 4)) {
-		fprintf(stderr, "Usage:  %s <port-name> [key] [kad]\n", argv[0]);
-		fprintf(stderr, "Examples:\n");
-		fprintf(stderr, "    spti Tape0                    (open the tape class driver in SHARED READ mode)\n");
-		fprintf(stderr, "    spti Tape0 D00D00             (Use AES-256 key 0xD00D00 (64 hex digits) on drive Tape0)\n");
-		fprintf(stderr, "    spti Tape0 D00D00             (Use RSA-2048 wrapped key 0xD00D00 (512 hex digits) on drive Tape0)\n");
-		fprintf(stderr, "    spti Tape0 D00D00 BackupTape1 (Use RSA-2048 wrapped key 0xD00D00 (512 hex digits) and KAD BackupTape1 on drive Tape0)\n");
-		fprintf(stderr, "    spti Tape0 weak               (Use a hardcoded really weak test key on drive Tape0)\n");
-		fprintf(stderr, "    spti Tape0 none               (Disable encryption and decryption on drive Tape0)\n");
-		return;
-	}
-
-	StringCbPrintf(string, sizeof(string), "\\\\.\\%s", argv[1]);
-
-	shareMode = FILE_SHARE_READ;
-	accessMode = GENERIC_WRITE | GENERIC_READ;
 	UINT16 logicalUnitIdentifierLength = 0;
 	PUCHAR logicalUnitIdentifier = NULL;
 	PDATA_ENCRYPTION_CAPABILITIES encryptionCapabilities = NULL;
@@ -247,6 +231,101 @@ main(
 	BOOL testKey = FALSE;
 	BOOL clearKey = FALSE;
 	PUCHAR keyAssociatedData = NULL;
+
+	ULONG length = 0,
+		errorCode = 0,
+		returned = 0;
+
+	if ((argc < 2) || (argc > 4)) {
+		printf("---------------------------------------------------\n");
+		fprintf(stderr, "Usage:  %s <port-name> [key] [kad]\n\n", argv[0]);
+		fprintf(stderr, "Examples:\n");
+		fprintf(stderr, "    spti Tape0                    (open the tape class driver in SHARED READ mode)\n");
+		fprintf(stderr, "    spti Tape0 D00D00             (Use AES-256 key 0xD00D00 (64 hex digits) on drive Tape0)\n");
+		fprintf(stderr, "    spti Tape0 D00D00             (Use RSA-2048 wrapped key 0xD00D00 (512 hex digits) on drive Tape0)\n");
+		fprintf(stderr, "    spti Tape0 D00D00 BackupTape1 (Use RSA-2048 wrapped key 0xD00D00 (512 hex digits) and KAD BackupTape1 on drive Tape0)\n");
+		fprintf(stderr, "    spti Tape0 weak               (Use a hardcoded really weak test key on drive Tape0)\n");
+		fprintf(stderr, "    spti Tape0 none               (Disable encryption and decryption on drive Tape0)\n");
+		printf("\n---------------------------------------------------\n");
+
+		printf("Enumerating installed tape drives...\n");
+		printf("---------------------------------------------------\n");
+		HDEVINFO tapeDrives = SetupDiGetClassDevs(&GUID_DEVINTERFACE_TAPE, NULL, NULL, DIGCF_DEVICEINTERFACE | DIGCF_PRESENT);
+		DWORD deviceIndex = 0;
+		PSP_DEVICE_INTERFACE_DATA deviceInterfaceData = calloc(1, sizeof(SP_DEVICE_INTERFACE_DATA));
+		deviceInterfaceData->cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
+		PSP_DEVICE_INTERFACE_DETAIL_DATA deviceInterfaceDetailData = NULL;
+
+		while (SetupDiEnumDeviceInterfaces(tapeDrives, NULL, &GUID_DEVINTERFACE_TAPE, deviceIndex, deviceInterfaceData))
+		{
+			printf("Device Alias: Tape%d\n", deviceIndex);
+			// Initialise the SP_DEVICE_INTERFACE_DETAIL_DATA struct
+			DWORD bufferSize = 0;
+			SetupDiGetDeviceInterfaceDetail(tapeDrives, deviceInterfaceData, NULL, 0, &bufferSize, NULL);
+			deviceInterfaceDetailData = calloc(1, bufferSize);
+			deviceInterfaceDetailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+			// Populate the SP_DEVICE_INTERFACE_DETAIL_DATA struct
+			SetupDiGetDeviceInterfaceDetail(tapeDrives, deviceInterfaceData, deviceInterfaceDetailData, bufferSize, NULL, NULL);
+			if (deviceInterfaceDetailData != NULL)
+			{
+				printf("Device Path: %s\n\n", deviceInterfaceDetailData->DevicePath);
+				fileHandle = CreateFile(deviceInterfaceDetailData->DevicePath,
+					accessMode,
+					shareMode,
+					NULL,
+					OPEN_EXISTING,
+					0,
+					NULL);
+
+				if (fileHandle == INVALID_HANDLE_VALUE) {
+					errorCode = GetLastError();
+					fprintf(stderr, "Error opening %s. Error: %d\n",
+						string, errorCode);
+					PrintError(errorCode);
+				}
+				else {
+					status = QueryPropertyForDevice(fileHandle, &alignmentMask, &srbType, &storageBusType);
+					if (!status) {
+						errorCode = GetLastError();
+						fprintf(stderr, "Error getting device and/or adapter properties; "
+							"error was %d\n", errorCode);
+						PrintError(errorCode);
+					}
+					CloseHandle(fileHandle);
+					fileHandle = NULL;
+				}
+
+				free(deviceInterfaceDetailData);
+				deviceInterfaceDetailData = NULL;
+				printf("---------------------------------------------------\n");
+			}
+			deviceIndex++;
+		}
+		if (deviceIndex == 0)
+		{
+			printf("\n** No tape drives found. **\n");
+			printf("---------------------------------------------------\n");
+		}
+		if (fileHandle != NULL)
+		{
+			CloseHandle(fileHandle);
+		}
+		if (tapeDrives != NULL)
+		{
+			SetupDiDestroyDeviceInfoList(tapeDrives);
+		}
+		return;
+	}
+
+	if (strncmp("\\\\", argv[1], 2) == 0)
+	{
+		*devicePath = argv[1];
+	}
+	else
+	{
+		StringCbPrintf(string, sizeof(string), "\\\\.\\%s", argv[1]);
+		*devicePath = string;
+	}
 
 	if (argc > 2) {
 		if (strcmp(argv[2], "weak") == 0) {
@@ -282,7 +361,7 @@ main(
 		keyAssociatedData = (PUCHAR)argv[3];
 	}
 
-	fileHandle = CreateFile(string,
+	fileHandle = CreateFile(*devicePath,
 		accessMode,
 		shareMode,
 		NULL,
@@ -591,6 +670,10 @@ Cleanup:
 		free(key);
 	}
 	CloseHandle(fileHandle);
+	if (devicePath != NULL)
+	{
+		free(devicePath);
+	}
 	if (length == 0) {
 		fprintf(stderr, "An SRB was not successfully created.");
 		return -1;
