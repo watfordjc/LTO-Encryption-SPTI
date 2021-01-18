@@ -13,7 +13,10 @@ The current commit of spti.exe only accepts arguments in a particular order.
 ```spti drive key kad```
 
 * spti: executable name
-* drive: drive name (e.g. **tape0**)
+  * If no parameters are supplied, usage information is displayed and installed tape drives are listed.
+* drive:
+  * drive name (e.g. **tape0**)
+  * device path (e.g. **"\\\\?\scsi#sequential&ven_hp&prod_ultrium_6-scsi#..."**)
 * key: *optional*:
   * **none** to clear keys and disable encryption and decryption.
   * **weak** for a hard-coded very weak key set using plain key format (for testing encryption support); ```0x00``` key format.
