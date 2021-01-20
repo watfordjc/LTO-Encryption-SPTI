@@ -99,13 +99,7 @@ typedef struct _DATA_ENCRYPTION_STATUS {
 
 #pragma pack(push)
 #pragma pack(1)
-typedef struct _DATA_ENCRYPTION_CAPABILITIES {
-    UINT16 PageCode; // Network Byte Order
-    UINT16 PageLength; // Network Byte Order
-    UCHAR ConfigurationPrevented : 2; // LSb of [4]
-    UCHAR ExternalDataEncryptionCapable : 2;
-    UCHAR Reserved1 : 4; // MSb of [4]
-    UCHAR Reserved2[15];
+typedef struct _DATA_ENCRYPTION_ALGORITHM {
     UCHAR AlgorithmIndex;
     UCHAR Reserved3;
     UINT16 DescriptorLength; // Network Byte Order
@@ -132,6 +126,21 @@ typedef struct _DATA_ENCRYPTION_CAPABILITIES {
     UINT16 MaximumSupplementalDecryptionKeyCount; // Network Byte Order
     UCHAR Reserved5[4];
     UINT32 AlgorithmCode; // Network Byte Order
+} DATA_ENCRYPTION_ALGORITHM, *PDATA_ENCRYPTION_ALGORITHM;
+#pragma pack(pop)
+
+#pragma pack(push)
+#pragma pack(1)
+typedef struct _DATA_ENCRYPTION_CAPABILITIES {
+    UINT16 PageCode; // Network Byte Order
+    UINT16 PageLength; // Network Byte Order
+    UCHAR ConfigurationPrevented : 2; // LSb of [4]
+    UCHAR ExternalDataEncryptionCapable : 2;
+    UCHAR Reserved1 : 4; // MSb of [4]
+    UCHAR Reserved2[15];
+#if !defined(__midl)
+    DATA_ENCRYPTION_ALGORITHM AlgorithmList[0];
+#endif
 } DATA_ENCRYPTION_CAPABILITIES, *PDATA_ENCRYPTION_CAPABILITIES;
 #pragma pack(pop)
 
@@ -317,7 +326,7 @@ VOID
 ParseDataEncryptionManagementCapabilities(PDATA_ENCRYPTION_MANAGEMENT_CAPABILITIES encryptionManagementCapabilities);
 
 VOID
-ParseDataEncryptionCapabilities(PDATA_ENCRYPTION_CAPABILITIES pBuffer, PDATA_ENCRYPTION_CAPABILITIES* ppEncryptionCapabilities, PINT16 pAesGcmAlgorithmIndex);
+ParseDataEncryptionCapabilities(PDATA_ENCRYPTION_CAPABILITIES pBuffer, PDATA_ENCRYPTION_ALGORITHM* ppDataEncryptionAlgorithm, PBOOL configurationPrevented);
 
 BOOL
 ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY deviceServerKeyWrappingPublicKey, UINT16 logicalUnitIdentifierLength, PUCHAR logicalUnitIdentifier, PUINT16 wrappedDescriptorsLength, PUCHAR* wrappedDescriptors);
@@ -329,10 +338,10 @@ VOID
 ParseSupportedKeyFormats(PSUPPORTED_KEY_FORMATS supportedKeyFormats, PBOOL pCapRfc3447);
 
 VOID
-ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, INT16 aesGcmAlgorithmIndex);
+ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm);
 
 VOID
-ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, INT16 aesGcmAlgorithmIndex);
+ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm);
 
 VOID
 ParseCertificateData(PCERTIFICATE_DATA certificateData);
