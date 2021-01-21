@@ -921,8 +921,8 @@ ParseDataEncryptionManagementCapabilities(PDATA_ENCRYPTION_MANAGEMENT_CAPABILITI
 /// Parse a pointer to a DATA_ENCRYPTION_CAPABILITIES struct
 /// </summary>
 /// <param name="pBuffer">A pointer to a DATA_ENCRYPTION_CAPABILITIES struct</param>
-/// <param name="ppEncryptionCapabilities">A pointer to a pointer to a DATA_ENCRYPTION_CAPABILITIES struct for storing parsed data</param>
-/// <param name="pAesGcmAlgorithmIndex">A pointer to a short for storing AES256-GCM algorithm index if discovered</param>
+/// <param name="ppDataEncryptionAlgorithm">A pointer to a pointer to a DATA_ENCRYPTION_ALGORITHM struct for storing the selected encryption algorithm</param>
+/// <param name="configurationPrevented">A pointer to a BOOL for storing whether data encryption configuration is disabled</param>
 VOID
 ParseDataEncryptionCapabilities(PDATA_ENCRYPTION_CAPABILITIES pBuffer, PDATA_ENCRYPTION_ALGORITHM* ppDataEncryptionAlgorithm, PBOOL configurationPrevented)
 {
@@ -1332,7 +1332,7 @@ ParseSupportedKeyFormats(PSUPPORTED_KEY_FORMATS supportedKeyFormats, PBOOL pCapR
 /// Parse a pointer to a DATA_ENCRYPTION_STATUS struct
 /// </summary>
 /// <param name="dataEncryptionStatus">A pointer to a DATA_ENCRYPTION_STATUS struct</param>
-/// <param name="aesGcmAlgorithmIndex">The drive's encryption algorithm index for AES256-GCM</param>
+/// <param name="encryptionAlgorithm">The drive's encryption algorithm for AES256-GCM</param>
 VOID
 ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm)
 {
@@ -1391,7 +1391,7 @@ ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, PDATA_EN
 /// Parse a pointer to a NEXT_BLOCK_ENCRYPTION_STATUS struct
 /// </summary>
 /// <param name="pNextBlockStatus">A pointer to a NEXT_BLOCK_ENCRYPTION_STATUS struct</param>
-/// <param name="aesGcmAlgorithmIndex">The drive's encryption algorithm index for AES256-GCM</param>
+/// <param name="encryptionAlgorithm">The drive's encryption algorithm for AES256-GCM</param>
 VOID
 ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm)
 {
