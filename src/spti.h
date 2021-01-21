@@ -349,8 +349,8 @@ ParseCertificateData(PCERTIFICATE_DATA certificateData);
 VOID
 SetDataEncryption(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UINT32 allocationLength, UCHAR aesGcmAlgorithmIndex, BOOL clearKey, UCHAR keyFormat, UINT16 keyFieldLength, PUCHAR keyField, int kadFieldLength, PPLAIN_KEY_DESCRIPTOR kad);
 
-UINT16
-ProcessKad(BOOL clearKey, UINT16 keyAssociatedDataLength, PUCHAR keyAssociatedData, PPLAIN_KEY_DESCRIPTOR* ppKadField);
+BOOL
+ProcessKad(BOOL clearKey, UINT16 keyAssociatedDataLength, PUCHAR keyAssociatedData, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm, PUINT16 kadFieldLength, PPLAIN_KEY_DESCRIPTOR* ppKadField);
 
 UINT16
 ProcessKey(int keyFormat, int keyType, int keyLength, PUCHAR key, UINT16 wrappedDescriptorsLength, PUCHAR wrappedDescriptors, PUCHAR* pKeyField);

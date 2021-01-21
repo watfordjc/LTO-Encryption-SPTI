@@ -604,12 +604,9 @@ main(
 
 			PPLAIN_KEY_DESCRIPTOR kadField = NULL;
 			UINT16 keyAssociatedDataLength = keyAssociatedData == NULL ? 0 : (UINT16)strlen((PCHAR)keyAssociatedData);
-			if (encryptionAlgorithm->AuthKadFixedLength || keyAssociatedDataLength > encryptionAlgorithm->AuthKadMaxLength)
-			{
-				fprintf(stderr, "  * Key-Associated Data (KAD) must currently be %d ASCII characters%s - other options are not implemented.\n", encryptionAlgorithm->AuthKadMaxLength, encryptionAlgorithm->AuthKadFixedLength ? "" : " or fewer");
-				goto Cleanup;
-			}
-			UINT16 kadFieldLength = ProcessKad(clearKey, keyAssociatedDataLength, keyAssociatedData, &kadField);
+			UINT16 kadFieldLength = 0;
+			BOOL kadProcessed = ProcessKad(clearKey, keyAssociatedDataLength, keyAssociatedData, encryptionAlgorithm, &kadFieldLength, &kadField);
+			if (!kadProcessed) { goto Cleanup; }
 
 			UINT32 allocationLength = FIELD_OFFSET(KEY_HEADER, KeyAndKADList[keyFieldLength + kadFieldLength]);
 			length = CreateSecurityProtocolOutSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPOUT_TAPE_SET_DATA_ENCRYPTION);
@@ -1524,30 +1521,105 @@ SetDataEncryption(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UINT32 allocatio
 /// <param name="clearKey">TRUE if encryption keys are being cleared, FALSE if they are being set</param>
 /// <param name="keyAssociatedDataLength">The length of the Key-Associated Data character array</param>
 /// <param name="keyAssociatedData">A character array containing Key-Associated Data</param>
-/// <param name="ppKadField">A pointer to a PPLAIN_KEY_DESCRIPTOR struct that will point at the new PPLAIN_KEY_DESCRIPTOR</param>
-/// <returns>The length of the KAD field</returns>
-UINT16
-ProcessKad(BOOL clearKey, UINT16 keyAssociatedDataLength, PUCHAR keyAssociatedData, PPLAIN_KEY_DESCRIPTOR* ppKadField)
+/// <param name="encryptionAlgorithm">The drive's encryption algorithm for AES256-GCM</param>
+/// <param name="kadFieldLength">The length of the KAD field</param>
+/// <param name="ppKadField">A pointer to a PPLAIN_KEY_DESCRIPTOR struct that will point at the new PLAIN_KEY_DESCRIPTOR[]</param>
+/// <returns>TRUE if successful, otherwise FALSE</returns>
+BOOL
+ProcessKad(BOOL clearKey, UINT16 keyAssociatedDataLength, PUCHAR keyAssociatedData, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm, PUINT16 kadFieldLength, PPLAIN_KEY_DESCRIPTOR* ppKadField)
 {
 	printf("* Processing KAD...\n");
-	PPLAIN_KEY_DESCRIPTOR kadField = NULL;
-	UINT16 kadFieldLength = 0;
-	if (!clearKey && keyAssociatedData != NULL) {
+	*kadFieldLength = 0;
 
-		kadFieldLength = (UINT16)FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[keyAssociatedDataLength]);
-		kadField = calloc(kadFieldLength, sizeof(UCHAR));
-		if (kadField != NULL)
-		{
-			*ppKadField = kadField;
-			kadField->Type = SPOUT_TAPE_KAD_PLAIN_TYPE_AUTH;
-			kadField->Length[0] = (keyAssociatedDataLength & 0xFF00) >> 8;
-			kadField->Length[1] = keyAssociatedDataLength & 0xFF;
-			memcpy(kadField->Descriptor, keyAssociatedData, keyAssociatedDataLength);
-			printf("  * KAD Descriptor with length %d\n", kadFieldLength);
-			//PrintDataBuffer((PUCHAR)kad, kadTotalLength);
-		}
+	// Return early if there is no KAD to process
+	if (clearKey || keyAssociatedData == NULL)
+	{
+		return TRUE;
 	}
-	return kadFieldLength;
+
+	UINT16 maxKadLength = encryptionAlgorithm->KadFormatCapable ? encryptionAlgorithm->AuthKadMaxLength + encryptionAlgorithm->UnauthKadMaxLength : encryptionAlgorithm->AuthKadMaxLength;
+
+	// Inform if KADF is not supported - KADF required for binary/ASCII KAD, required for splitting a descriptor between A-KAD and U-KAD fields
+	if (!encryptionAlgorithm->KadFormatCapable)
+	{
+		// If A-KAD length is fixed (AKADF), does the descriptor meet the required length?
+		if (encryptionAlgorithm->AuthKadFixedLength && keyAssociatedDataLength != encryptionAlgorithm->AuthKadMaxLength)
+		{
+			fprintf(stderr, "** ERROR: Key-Associated Data (KAD) must be exactly %d ASCII characters long.\n", encryptionAlgorithm->AuthKadMaxLength);
+			return FALSE;
+		}
+		printf("  * KAD Format (KADF) is not supported by your drive and/or the encryption algorithm. KAD maximum length limited to %d A-KAD bytes.\n", encryptionAlgorithm->AuthKadMaxLength);
+	}
+	// If KADF is supported, and descriptor overflows both A-KAD and U-KAD Fields
+	else if (encryptionAlgorithm->KadFormatCapable && keyAssociatedDataLength > maxKadLength)
+	{
+		fprintf(stderr, "** ERROR: Key-Associated Data (KAD) length limit is %d ASCII characters.\n", maxKadLength);
+		return FALSE;
+	}
+	// If KADF is supported, and descriptor overflows A-KAD field
+	else if (encryptionAlgorithm->KadFormatCapable && keyAssociatedDataLength > encryptionAlgorithm->AuthKadMaxLength)
+	{
+		// If U-KAD length is fixed (UKADF), does the part of the descriptor that doesn't fit in A-KAD have the required length?
+		if (encryptionAlgorithm->UnauthKadFixedLength && keyAssociatedDataLength - encryptionAlgorithm->AuthKadMaxLength != encryptionAlgorithm->UnauthKadMaxLength)
+		{
+			fprintf(stderr, "** ERROR: Key-Associated Data (KAD) must be exactly %d or %d ASCII characters long.\n", encryptionAlgorithm->AuthKadMaxLength, encryptionAlgorithm->AuthKadMaxLength + encryptionAlgorithm->UnauthKadMaxLength);
+			return FALSE;
+		}
+		// Inform A-KAD and U-KAD will be used
+		printf("  * KAD Format (KADF) is supported by your drive and your key description is longer than will fit in A-KAD. KAD will be split between A-KAD and U-KAD.\n");
+	}
+	// If KADF is supported, and descriptor doesn't overflow A-KAD field
+	else if (encryptionAlgorithm->KadFormatCapable && keyAssociatedDataLength <= encryptionAlgorithm->AuthKadMaxLength)
+	{
+		// If A-KAD length is fixed (AKADF), does the descriptor meet the required length?
+		if (encryptionAlgorithm->AuthKadFixedLength && keyAssociatedDataLength != encryptionAlgorithm->AuthKadMaxLength)
+		{
+			fprintf(stderr, "** ERROR: Key-Associated Data (KAD) must be exactly %d or %d ASCII characters long.\n", encryptionAlgorithm->AuthKadMaxLength, encryptionAlgorithm->AuthKadMaxLength + encryptionAlgorithm->UnauthKadMaxLength);
+			return FALSE;
+		}
+		// Inform only A-KAD will be used
+		printf("  * KAD Format (KADF) is supported by your drive and your key description will fit in A-KAD. KAD will only use A-KAD.\n");
+	}
+
+	// Calculate the length of aKad->Descriptor
+	UINT16 aKadDescriptorLength = keyAssociatedDataLength > encryptionAlgorithm->AuthKadMaxLength ? encryptionAlgorithm->AuthKadMaxLength : keyAssociatedDataLength;
+	// Calculate the length of aKad
+	UINT16 aKadLength = (UINT16)FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[aKadDescriptorLength]);
+	// Calculate the length of uKad->Descriptor
+	UINT16 uKadDescriptorLength = keyAssociatedDataLength > encryptionAlgorithm->AuthKadMaxLength ? keyAssociatedDataLength - encryptionAlgorithm->AuthKadMaxLength : 0;
+	// Calculate the length of uKad
+	UINT16 uKadLength = uKadDescriptorLength == 0 ? 0 : (UINT16)FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[uKadDescriptorLength]);
+
+	// Calculate the combined lengths of aKad and uKad
+	*kadFieldLength = aKadLength + uKadLength;
+	// Allocate memory to store KAD list
+	PUCHAR kadField = calloc(*kadFieldLength, sizeof(UCHAR));
+	if (kadField == NULL)
+	{
+		return FALSE;
+	}
+	// Update pointer for KAD list to new location
+	*ppKadField = (PPLAIN_KEY_DESCRIPTOR)kadField;
+	// U-KAD descriptor (0x00) comes before A-KAD descriptor (0x01) in KAD list; set pointers for both
+	PPLAIN_KEY_DESCRIPTOR uKad = (PPLAIN_KEY_DESCRIPTOR)kadField;
+	PPLAIN_KEY_DESCRIPTOR aKad = (PPLAIN_KEY_DESCRIPTOR)(kadField + uKadLength);
+	// Create U-KAD if necessary
+	if (keyAssociatedDataLength > encryptionAlgorithm->AuthKadMaxLength)
+	{
+		uKad->Type = SPOUT_TAPE_KAD_PLAIN_TYPE_UNAUTH;
+		uKad->Length[0] = (uKadDescriptorLength & 0xFF00) >> 8;
+		uKad->Length[1] = uKadDescriptorLength & 0xFF;
+		memcpy(uKad->Descriptor, keyAssociatedData + aKadDescriptorLength, uKadDescriptorLength);
+		printf("  * KAD Descriptor of type 0x%02x with length %d\n", uKad->Type, uKadLength);
+	}
+	// Create A-KAD
+	aKad->Type = SPOUT_TAPE_KAD_PLAIN_TYPE_AUTH;
+	aKad->Length[0] = (aKadDescriptorLength & 0xFF00) >> 8;
+	aKad->Length[1] = aKadDescriptorLength & 0xFF;
+	memcpy(aKad->Descriptor, keyAssociatedData, aKadDescriptorLength);
+	printf("  * KAD Descriptor of type 0x%02x with length %d\n", aKad->Type, aKadLength);
+
+	return TRUE;
 }
 
 /// <summary>
