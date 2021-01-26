@@ -230,6 +230,10 @@ main(
 	BOOL testKey = FALSE;
 	BOOL clearKey = FALSE;
 	PUCHAR keyAssociatedData = NULL;
+	UINT16 keyAssociatedDataStatusLength[2] = { 0 };
+	PCHAR keyAssociatedDataStatus[2] = { NULL };
+	UINT16 keyAssociatedDataNextBlockLength[2] = { 0 };
+	PCHAR keyAssociatedDataNextBlock[2] = { NULL };
 
 	ULONG length = 0,
 		errorCode = 0,
@@ -526,7 +530,7 @@ main(
 		{
 			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 			if (pageCode == SPIN_TAPE_ENCRYPTION_STATUS) {
-				ParseDataEncryptionStatus((PDATA_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, encryptionAlgorithm);
+				ParseDataEncryptionStatus((PDATA_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, encryptionAlgorithm, keyAssociatedDataStatusLength, keyAssociatedDataStatus);
 			}
 		}
 
@@ -631,7 +635,7 @@ main(
 		{
 			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 			if (pageCode == SPIN_TAPE_ENCRYPTION_STATUS) {
-				ParseDataEncryptionStatus((PDATA_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, encryptionAlgorithm);
+				ParseDataEncryptionStatus((PDATA_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, encryptionAlgorithm, keyAssociatedDataStatusLength, keyAssociatedDataStatus);
 			}
 		}
 
@@ -640,17 +644,33 @@ main(
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS);
 		if (length == 0) { goto Cleanup; }
 		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+		UCHAR encryptionStatus = 0;
 
 		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
 			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
 			if (pageCode == SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS) {
-				ParseNextBlockEncryptionStatus((PNEXT_BLOCK_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, encryptionAlgorithm);
+				encryptionStatus = ParseNextBlockEncryptionStatus((PNEXT_BLOCK_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, encryptionAlgorithm, keyAssociatedDataNextBlockLength, keyAssociatedDataNextBlock);
 			}
 		}
+
+		BOOL kadMatches = KeyAuthenticatedDataIsEqual(keyAssociatedDataStatusLength, keyAssociatedDataStatus, keyAssociatedDataNextBlockLength, keyAssociatedDataNextBlock);
+		printf("\n** %s KAD %s. **\n", NextBlockEncryptionStatusStrings[encryptionStatus], kadMatches ? "matches" : "doesn't match");
 	}
 
 Cleanup:
+	if (keyAssociatedDataStatus[0] != NULL) {
+		free(keyAssociatedDataStatus[0]);
+	}
+	if (keyAssociatedDataStatus[1] != NULL) {
+		free(keyAssociatedDataStatus[1]);
+	}
+	if (keyAssociatedDataNextBlock[0] != NULL) {
+		free(keyAssociatedDataNextBlock[0]);
+	}
+	if (keyAssociatedDataNextBlock[1] != NULL) {
+		free(keyAssociatedDataNextBlock[1]);
+	}
 	if (encryptionAlgorithm != NULL) {
 		free(encryptionAlgorithm);
 	}
@@ -1330,8 +1350,10 @@ ParseSupportedKeyFormats(PSUPPORTED_KEY_FORMATS supportedKeyFormats, PBOOL pCapR
 /// </summary>
 /// <param name="dataEncryptionStatus">A pointer to a DATA_ENCRYPTION_STATUS struct</param>
 /// <param name="encryptionAlgorithm">The drive's encryption algorithm for AES256-GCM</param>
+/// <param name="keyAssociatedDataStatusLength">A pointer for storing an array of KAD lengths</param>
+/// <param name="keyAssociatedDataStatus">A pointer for storing an array of KAD character arrays</param>
 VOID
-ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm)
+ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm, PUINT16 keyAssociatedDataStatusLength, PCHAR* keyAssociatedDataStatus)
 {
 	printf("Parsing Data Encryption Status page...\n");
 	// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
@@ -1358,6 +1380,15 @@ ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, PDATA_EN
 	printf("* Available Supplemental Decryption Key Count (ASDKC): %d\n", dataEncryptionStatus->AvailableSupplementalDecryptionKeys);
 	int kadListLength = (UINT16)dataEncryptionStatus->PageLength - 20;
 	printf("* KAD List Length: 0x%02x (%d bytes)\n", kadListLength, kadListLength);
+	for (int i = 0; i < 2; i++)
+	{
+		if (keyAssociatedDataStatus[i] != NULL)
+		{
+			keyAssociatedDataStatusLength[i] = 0;
+			free(keyAssociatedDataStatus[i]);
+			keyAssociatedDataStatus[i] = NULL;
+		}
+	}
 	PPLAIN_KEY_DESCRIPTOR kad = NULL;
 	int currentKadTotalLength = 0;
 	for (int i = 0; i < kadListLength; i += currentKadTotalLength)
@@ -1373,6 +1404,15 @@ ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, PDATA_EN
 			if (dataEncryptionStatus->EncryptionParametersKadFormat == SPOUT_TAPE_KAD_FORMAT_ASCII)
 			{
 				printf("    * KAD: %.*s\n", currentKadLength, kad->Descriptor);
+				if (kad->Type < SPOUT_TAPE_KAD_PLAIN_TYPE_NONCE)
+				{
+					keyAssociatedDataStatus[kad->Type] = calloc(currentKadLength, sizeof(UCHAR));
+					if (keyAssociatedDataStatus[kad->Type] != NULL)
+					{
+						memcpy(keyAssociatedDataStatus[kad->Type], kad->Descriptor, currentKadLength);
+						keyAssociatedDataStatusLength[kad->Type] = currentKadLength;
+					}
+				}
 			}
 			else
 			{
@@ -1387,10 +1427,13 @@ ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, PDATA_EN
 /// <summary>
 /// Parse a pointer to a NEXT_BLOCK_ENCRYPTION_STATUS struct
 /// </summary>
-/// <param name="pNextBlockStatus">A pointer to a NEXT_BLOCK_ENCRYPTION_STATUS struct</param>
+/// <param name="nextBlockStatus">A pointer to a NEXT_BLOCK_ENCRYPTION_STATUS struct</param>
 /// <param name="encryptionAlgorithm">The drive's encryption algorithm for AES256-GCM</param>
-VOID
-ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm)
+/// <param name="keyAssociatedDataNextBlockLength">A pointer for storing an array of KAD lengths</param>
+/// <param name="keyAssociatedDataNextBlock">A pointer for storing an array of KAD character arrays</param>
+/// <returns>The next block encryption status</returns>
+UCHAR
+ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm, PUINT16 keyAssociatedDataNextBlockLength, PCHAR* keyAssociatedDataNextBlock)
 {
 	// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
 	nextBlockStatus->PageCode = ntohs(nextBlockStatus->PageCode);
@@ -1416,6 +1459,15 @@ ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, PD
 		nextBlockStatus->KADFormat
 	);
 	printf("* KAD List Length: 0x%02x (%d bytes)\n", kadListLength, kadListLength);
+	for (int i = 0; i < 2; i++)
+	{
+		keyAssociatedDataNextBlockLength[i] = 0;
+		if (keyAssociatedDataNextBlock[i] != NULL)
+		{
+			free(keyAssociatedDataNextBlock[i]);
+			keyAssociatedDataNextBlock[i] = NULL;
+		}
+	}
 	PPLAIN_KEY_DESCRIPTOR kad = NULL;
 	int currentKadTotalLength = 0;
 	for (int i = 0; i < kadListLength; i += currentKadTotalLength)
@@ -1431,6 +1483,15 @@ ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, PD
 			if (nextBlockStatus->KADFormat == SPOUT_TAPE_KAD_FORMAT_ASCII)
 			{
 				printf("    * KAD: %.*s\n", currentKadLength, kad->Descriptor);
+				if (kad->Type < SPOUT_TAPE_KAD_PLAIN_TYPE_NONCE)
+				{
+					keyAssociatedDataNextBlock[kad->Type] = calloc(currentKadLength, sizeof(UCHAR));
+					if (keyAssociatedDataNextBlock[kad->Type] != NULL)
+					{
+						memcpy(keyAssociatedDataNextBlock[kad->Type], kad->Descriptor, currentKadLength);
+						keyAssociatedDataNextBlockLength[kad->Type] = currentKadLength;
+					}
+				}
 			}
 			else
 			{
@@ -1440,6 +1501,59 @@ ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, PD
 		}
 	}
 	printf("\n");
+	return nextBlockStatus->EncryptionStatus;
+}
+
+/// <summary>
+/// Compares two KAD arrays for equality
+/// </summary>
+/// <param name="keyAssociatedDataStatusLength">First array of KAD lengths</param>
+/// <param name="keyAssociatedDataStatus">First array of KAD character arrays</param>
+/// <param name="keyAssociatedDataNextBlockLength">Second array of KAD lengths</param>
+/// <param name="keyAssociatedDataNextBlock">Second array of KAD character arrays</param>
+/// <returns>TRUE if equal, otherwise FALSE</returns>
+BOOL
+KeyAuthenticatedDataIsEqual(PUINT16 keyAssociatedDataStatusLength, PCHAR* keyAssociatedDataStatus, PUINT16 keyAssociatedDataNextBlockLength, PCHAR* keyAssociatedDataNextBlock)
+{
+	printf("Comparing Data Encryption Status KAD and Next Block Encryption Status KAD...\n");
+	BOOL statusValueExists = FALSE;
+	BOOL nextBlockValueExists = FALSE;
+	BOOL completeMatch = TRUE;
+	BOOL isMatch = TRUE;
+
+	for (int i = 0; i < 2; i++)
+	{
+		statusValueExists = keyAssociatedDataStatus[i] != NULL;
+		nextBlockValueExists = keyAssociatedDataNextBlock[i] != NULL;
+		if (!statusValueExists && !nextBlockValueExists) { continue; }
+		printf("* KAD Type: 0x%02X\n", i);
+		isMatch = TRUE;
+		size_t kadLength = keyAssociatedDataNextBlockLength[i] > keyAssociatedDataStatusLength[i] ? keyAssociatedDataNextBlockLength[i] : keyAssociatedDataStatusLength[i];
+		if (nextBlockValueExists)
+		{
+			printf("  * Data Encryption Status KAD: %.*s\n", (int)keyAssociatedDataStatusLength[i], keyAssociatedDataStatus[i]);
+			printf("  * Next Block Encryption Status KAD: %.*s\n", (int)keyAssociatedDataNextBlockLength[i], keyAssociatedDataNextBlock[i]);
+		}
+		if (statusValueExists != nextBlockValueExists || keyAssociatedDataStatusLength[i] != keyAssociatedDataNextBlockLength[i])
+		{
+			completeMatch = FALSE;
+			isMatch = FALSE;
+		}
+		else if (memcmp(keyAssociatedDataStatus[i], keyAssociatedDataNextBlock[i], kadLength) != 0)
+		{
+			completeMatch = FALSE;
+			isMatch = FALSE;
+		}
+		if (statusValueExists || nextBlockValueExists)
+		{
+			printf("  * KAD of type 0x%02X %s.\n", i, isMatch ? "matches" : "doesn't match");
+		}
+	}
+	if (completeMatch)
+	{
+		printf("* KAD matches.\n");
+	}
+	return completeMatch;
 }
 
 /// <summary>
@@ -1545,8 +1659,10 @@ ProcessKad(BOOL clearKey, UINT16 keyAssociatedDataLength, PUCHAR keyAssociatedDa
 		// If A-KAD length is fixed (AKADF), does the descriptor meet the required length?
 		if (encryptionAlgorithm->AuthKadFixedLength && keyAssociatedDataLength != encryptionAlgorithm->AuthKadMaxLength)
 		{
-			fprintf(stderr, "** ERROR: Key-Associated Data (KAD) must be exactly %d ASCII characters long.\n", encryptionAlgorithm->AuthKadMaxLength);
-			return FALSE;
+			fprintf(stderr, "  * Key-Associated Data (KAD) must be exactly %d ASCII characters long. Padding A-KAD with %d NUL characters.\n",
+				encryptionAlgorithm->AuthKadMaxLength,
+				encryptionAlgorithm->AuthKadMaxLength - keyAssociatedDataLength
+			);
 		}
 		printf("  * KAD Format (KADF) is not supported by your drive and/or the encryption algorithm. KAD maximum length limited to %d A-KAD bytes.\n", encryptionAlgorithm->AuthKadMaxLength);
 	}
@@ -1562,8 +1678,11 @@ ProcessKad(BOOL clearKey, UINT16 keyAssociatedDataLength, PUCHAR keyAssociatedDa
 		// If U-KAD length is fixed (UKADF), does the part of the descriptor that doesn't fit in A-KAD have the required length?
 		if (encryptionAlgorithm->UnauthKadFixedLength && keyAssociatedDataLength - encryptionAlgorithm->AuthKadMaxLength != encryptionAlgorithm->UnauthKadMaxLength)
 		{
-			fprintf(stderr, "** ERROR: Key-Associated Data (KAD) must be exactly %d or %d ASCII characters long.\n", encryptionAlgorithm->AuthKadMaxLength, encryptionAlgorithm->AuthKadMaxLength + encryptionAlgorithm->UnauthKadMaxLength);
-			return FALSE;
+			fprintf(stderr, "  * Key-Associated Data (KAD) must be exactly %d or %d ASCII characters long. Padding U-KAD with %d NUL characters.\n",
+				encryptionAlgorithm->AuthKadMaxLength,
+				encryptionAlgorithm->AuthKadMaxLength + encryptionAlgorithm->UnauthKadMaxLength,
+				encryptionAlgorithm->AuthKadMaxLength + encryptionAlgorithm->UnauthKadFixedLength - encryptionAlgorithm->UnauthKadFixedLength
+			);
 		}
 		// Inform A-KAD and U-KAD will be used
 		printf("  * KAD Format (KADF) is supported by your drive and your key description is longer than will fit in A-KAD. KAD will be split between A-KAD and U-KAD.\n");
@@ -1574,7 +1693,10 @@ ProcessKad(BOOL clearKey, UINT16 keyAssociatedDataLength, PUCHAR keyAssociatedDa
 		// If A-KAD length is fixed (AKADF), does the descriptor meet the required length?
 		if (encryptionAlgorithm->AuthKadFixedLength && keyAssociatedDataLength != encryptionAlgorithm->AuthKadMaxLength)
 		{
-			fprintf(stderr, "** ERROR: Key-Associated Data (KAD) must be exactly %d or %d ASCII characters long.\n", encryptionAlgorithm->AuthKadMaxLength, encryptionAlgorithm->AuthKadMaxLength + encryptionAlgorithm->UnauthKadMaxLength);
+			fprintf(stderr, "** ERROR: Key-Associated Data (KAD) must be exactly %d or %d ASCII characters long.\n",
+				encryptionAlgorithm->AuthKadMaxLength,
+				encryptionAlgorithm->AuthKadMaxLength + encryptionAlgorithm->UnauthKadMaxLength
+			);
 			return FALSE;
 		}
 		// Inform only A-KAD will be used
@@ -1582,11 +1704,27 @@ ProcessKad(BOOL clearKey, UINT16 keyAssociatedDataLength, PUCHAR keyAssociatedDa
 	}
 
 	// Calculate the length of aKad->Descriptor
-	UINT16 aKadDescriptorLength = keyAssociatedDataLength > encryptionAlgorithm->AuthKadMaxLength ? encryptionAlgorithm->AuthKadMaxLength : keyAssociatedDataLength;
+	UINT16 aKadDescriptorLength = 0;
+	if (encryptionAlgorithm->AuthKadFixedLength || keyAssociatedDataLength > encryptionAlgorithm->AuthKadMaxLength)
+	{
+		aKadDescriptorLength = encryptionAlgorithm->AuthKadMaxLength;
+	}
+	else
+	{
+		aKadDescriptorLength = keyAssociatedDataLength;
+	}
 	// Calculate the length of aKad
 	UINT16 aKadLength = (UINT16)FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[aKadDescriptorLength]);
 	// Calculate the length of uKad->Descriptor
-	UINT16 uKadDescriptorLength = keyAssociatedDataLength > encryptionAlgorithm->AuthKadMaxLength ? keyAssociatedDataLength - encryptionAlgorithm->AuthKadMaxLength : 0;
+	UINT16 uKadDescriptorLength = 0;
+	if (encryptionAlgorithm->UnauthKadFixedLength && keyAssociatedDataLength > encryptionAlgorithm->AuthKadMaxLength)
+	{
+		uKadDescriptorLength = encryptionAlgorithm->UnauthKadMaxLength;
+	}
+	else if (keyAssociatedDataLength > encryptionAlgorithm->AuthKadMaxLength)
+	{
+		uKadDescriptorLength = keyAssociatedDataLength - encryptionAlgorithm->AuthKadMaxLength;
+	}
 	// Calculate the length of uKad
 	UINT16 uKadLength = uKadDescriptorLength == 0 ? 0 : (UINT16)FIELD_OFFSET(PLAIN_KEY_DESCRIPTOR, Descriptor[uKadDescriptorLength]);
 

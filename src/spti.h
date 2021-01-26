@@ -338,10 +338,13 @@ VOID
 ParseSupportedKeyFormats(PSUPPORTED_KEY_FORMATS supportedKeyFormats, PBOOL pCapRfc3447);
 
 VOID
-ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm);
+ParseDataEncryptionStatus(PDATA_ENCRYPTION_STATUS dataEncryptionStatus, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm, PUINT16 keyAssociatedDataStatusLength, PCHAR* keyAssociatedDataStatus);
 
-VOID
-ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm);
+UCHAR
+ParseNextBlockEncryptionStatus(PNEXT_BLOCK_ENCRYPTION_STATUS nextBlockStatus, PDATA_ENCRYPTION_ALGORITHM encryptionAlgorithm, PUINT16 keyAssociatedDataNextBlockLength, PCHAR* keyAssociatedDataNextBlock);
+
+BOOL
+KeyAuthenticatedDataIsEqual(PUINT16 keyAssociatedDataStatusLength, PCHAR* keyAssociatedDataStatus, PUINT16 keyAssociatedDataNextBlockLength, PCHAR* keyAssociatedDataNextBlock);
 
 VOID
 ParseCertificateData(PCERTIFICATE_DATA certificateData);
