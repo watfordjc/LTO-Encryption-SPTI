@@ -17,8 +17,8 @@ Revision History:
 
 --*/
 
-#pragma warning(disable:4200) // array[0] is not a warning for this file
-#pragma warning(disable:4214) // nonstandard extension used : bit field types other than int
+#pragma warning(disable:4200) /* array[0] is not a warning for this file */
+#pragma warning(disable:4214) /* nonstandard extension used : bit field types other than int */
 
 #define SPT_CDB_LENGTH 32
 #define SPT_SENSE_LENGTH 32
@@ -26,18 +26,18 @@ Revision History:
 
 typedef struct _SCSI_PASS_THROUGH_WITH_BUFFERS {
     SCSI_PASS_THROUGH spt;
-    ULONG             Filler;      // realign buffers to double word boundary
+    ULONG             Filler;      /* realign buffers to double word boundary */
     UCHAR             ucSenseBuf[SPT_SENSE_LENGTH];
     UCHAR             ucDataBuf[SPTWB_DATA_LENGTH];
     } SCSI_PASS_THROUGH_WITH_BUFFERS, *PSCSI_PASS_THROUGH_WITH_BUFFERS;
     
 typedef struct _SCSI_PASS_THROUGH_WITH_BUFFERS_EX {
     SCSI_PASS_THROUGH_EX spt;
-    UCHAR             ucCdbBuf[SPT_CDB_LENGTH-1];       // cushion for spt.Cdb
-    ULONG             Filler;      // realign buffers to double word boundary
+    UCHAR             ucCdbBuf[SPT_CDB_LENGTH-1];       /* cushion for spt.Cdb */
+    ULONG             Filler;      /* realign buffers to double word boundary */
     STOR_ADDR_BTL8    StorAddress;
     UCHAR             ucSenseBuf[SPT_SENSE_LENGTH];
-    UCHAR             ucDataBuf[SPTWB_DATA_LENGTH];     // buffer for DataIn or DataOut
+    UCHAR             ucDataBuf[SPTWB_DATA_LENGTH];     /* buffer for DataIn or DataOut */
 } SCSI_PASS_THROUGH_WITH_BUFFERS_EX, *PSCSI_PASS_THROUGH_WITH_BUFFERS_EX;
 
 #pragma pack(push)
@@ -53,9 +53,9 @@ typedef struct _SECURITY_PROTOCOL_COMPLIANCE {
 #pragma pack(push)
 #pragma pack(1)
 typedef struct _SECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR {
-    UINT16 DescriptorType; // Network Byte Order
+    UINT16 DescriptorType; /* Network Byte Order */
     UCHAR Reserved1[2];
-    UINT32 DescriptorLength; // Network Byte Order
+    UINT32 DescriptorLength; /* Network Byte Order */
 #if !defined(__midl)
     UCHAR DescriptorInformation[0];
 #endif
@@ -74,22 +74,22 @@ typedef struct _SECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR_INFO_FIPS140 {
 #pragma pack(push)
 #pragma pack(1)
 typedef struct _DATA_ENCRYPTION_STATUS {
-    UINT16 PageCode; // Network Byte Order
-    UINT16 PageLength; // Network Byte Order
-    UCHAR KeyScope : 3; // LSb of [4]
+    UINT16 PageCode; /* Network Byte Order */
+    UINT16 PageLength; /* Network Byte Order */
+    UCHAR KeyScope : 3; /* LSb of [4] */
     UCHAR Reserved1 : 2;
-    UCHAR ItNexusScope : 3; // MSb of [4]
+    UCHAR ItNexusScope : 3; /* MSb of [4] */
     UCHAR EncryptionMode;
     UCHAR DecryptionMode;
     UCHAR AlgorithmIndex;
-    UINT32 KeyInstanceCounter; // Network Byte Order
-    UCHAR RawDecryptionModeDisabled : 1; // LSb of [12]
+    UINT32 KeyInstanceCounter; /* Network Byte Order */
+    UCHAR RawDecryptionModeDisabled : 1; /* LSb of [12] */
     UCHAR CheckExternalEncryptionModeStatus : 2;
     UCHAR VolumeContainsEncryptedLogicalBlocks : 1;
     UCHAR ParametersControl : 3;
-    UCHAR Reserved2 : 1; // MSb of [12]
+    UCHAR Reserved2 : 1; /* MSb of [12] */
     UCHAR EncryptionParametersKadFormat;
-    UINT16 AvailableSupplementalDecryptionKeys; // Network Byte Order
+    UINT16 AvailableSupplementalDecryptionKeys; /* Network Byte Order */
     UCHAR Reserved3[8];
 #if !defined(__midl)
     UCHAR KADList[0];
@@ -102,41 +102,41 @@ typedef struct _DATA_ENCRYPTION_STATUS {
 typedef struct _DATA_ENCRYPTION_ALGORITHM {
     UCHAR AlgorithmIndex;
     UCHAR Reserved3;
-    UINT16 DescriptorLength; // Network Byte Order
-    UCHAR EncryptCapable : 2; // LSb of [24]
+    UINT16 DescriptorLength; /* Network Byte Order */
+    UCHAR EncryptCapable : 2; /* LSb of [24] */
     UCHAR DecryptCapable : 2;
     UCHAR DistinguishEncryptedLogicalBlockCapable : 1;
     UCHAR MacKadCapable : 1;
     UCHAR SupplementalDecryptionKeyCapable : 1;
-    UCHAR AlgorithmValidForMountedVolume : 1; // MSb of [24]
-    UCHAR AuthKadFixedLength : 1; // LSb of [25]
+    UCHAR AlgorithmValidForMountedVolume : 1; /* MSb of [24] */
+    UCHAR AuthKadFixedLength : 1; /* LSb of [25] */
     UCHAR UnauthKadFixedLength : 1;
     UCHAR VolumeContainsEncryptedLogicalBlocksCapable : 1;
     UCHAR KadFormatCapable : 1;
     UCHAR NonceKadCapable : 2;
-    UCHAR AlgorithmValidForCurrentLogicalPosition : 2; // MSb of [25]
-    UINT16 UnauthKadMaxLength; // Network Byte Order
-    UINT16 AuthKadMaxLength; // Network Byte Order
-    UINT16 KeySize; // Network Byte Order
-    UCHAR EncryptionAlgorithmRecordsEncryptionMode : 1; // LSb of [32]
+    UCHAR AlgorithmValidForCurrentLogicalPosition : 2; /* MSb of [25] */
+    UINT16 UnauthKadMaxLength; /* Network Byte Order */
+    UINT16 AuthKadMaxLength; /* Network Byte Order */
+    UINT16 KeySize; /* Network Byte Order */
+    UCHAR EncryptionAlgorithmRecordsEncryptionMode : 1; /* LSb of [32] */
     UCHAR RawDecryptionModeControlCapabilities : 3;
     UCHAR ExternalEncryptionModeControlCapable : 2;
-    UCHAR DecryptionKadCapable : 2; // LSb of [32]
+    UCHAR DecryptionKadCapable : 2; /* LSb of [32] */
     UCHAR Reserved4;
-    UINT16 MaximumSupplementalDecryptionKeyCount; // Network Byte Order
+    UINT16 MaximumSupplementalDecryptionKeyCount; /* Network Byte Order */
     UCHAR Reserved5[4];
-    UINT32 AlgorithmCode; // Network Byte Order
+    UINT32 AlgorithmCode; /* Network Byte Order */
 } DATA_ENCRYPTION_ALGORITHM, *PDATA_ENCRYPTION_ALGORITHM;
 #pragma pack(pop)
 
 #pragma pack(push)
 #pragma pack(1)
 typedef struct _DATA_ENCRYPTION_CAPABILITIES {
-    UINT16 PageCode; // Network Byte Order
-    UINT16 PageLength; // Network Byte Order
+    UINT16 PageCode; /* Network Byte Order */
+    UINT16 PageLength; /* Network Byte Order */
     UCHAR ConfigurationPrevented : 2; // LSb of [4]
     UCHAR ExternalDataEncryptionCapable : 2;
-    UCHAR Reserved1 : 4; // MSb of [4]
+    UCHAR Reserved1 : 4; /* MSb of [4] */
     UCHAR Reserved2[15];
 #if !defined(__midl)
     DATA_ENCRYPTION_ALGORITHM AlgorithmList[0];
@@ -147,19 +147,19 @@ typedef struct _DATA_ENCRYPTION_CAPABILITIES {
 #pragma pack(push)
 #pragma pack(1)
 typedef struct _DATA_ENCRYPTION_MANAGEMENT_CAPABILITIES {
-    UINT16 PageCode; // Network Byte Order
-    UINT16 PageLength; // Network Byte Order
-    UCHAR LockCapable : 1; // LSb of [4]
-    UCHAR Reserved1 : 7; // MSb of [4]
-    UCHAR ClearKeyOnReservationLossCapable : 1; // LSb of [5]
+    UINT16 PageCode; /* Network Byte Order */
+    UINT16 PageLength; /* Network Byte Order */
+    UCHAR LockCapable : 1; /* LSb of [4] */
+    UCHAR Reserved1 : 7; /* MSb of [4] */
+    UCHAR ClearKeyOnReservationLossCapable : 1; /* LSb of [5] */
     UCHAR ClearKeyOnReservationPreemptedCapable : 1;
     UCHAR ClearKeyOnDemountCapable : 1;
-    UCHAR Reserved2 : 5; // MSb of [5]
+    UCHAR Reserved2 : 5; /* MSb of [5] */
     UCHAR Reserved3;
-    UCHAR PublicScopeCapable : 1; // LSb of [7]
+    UCHAR PublicScopeCapable : 1; /* LSb of [7] */
     UCHAR LocalScopeCapable : 1;
     UCHAR AITNScopeCapable : 1;
-    UCHAR Reserved4 : 5; // MSb of [7]
+    UCHAR Reserved4 : 5; /* MSb of [7] */
     UCHAR Reserved5[8];
 } DATA_ENCRYPTION_MANAGEMENT_CAPABILITIES, *PDATA_ENCRYPTION_MANAGEMENT_CAPABILITIES;
 #pragma pack(pop)
@@ -167,11 +167,11 @@ typedef struct _DATA_ENCRYPTION_MANAGEMENT_CAPABILITIES {
 #pragma pack(push)
 #pragma pack(1)
 typedef struct _DEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY {
-    UINT16 PageCode; // Network Byte Order
-    UINT16 PageLength; // Network Byte Order
-    UINT32 PublicKeyType; // Network Byte Order
-    UINT32 PublicKeyFormat; // Network Byte Order
-    UINT16 PublicKeyLength; // Network Byte Order
+    UINT16 PageCode; /* Network Byte Order */
+    UINT16 PageLength; /* Network Byte Order */
+    UINT32 PublicKeyType; /* Network Byte Order */
+    UINT32 PublicKeyFormat; /* Network Byte Order */
+    UINT16 PublicKeyLength; /* Network Byte Order */
 #if !defined(__midl)
     UCHAR PublicKey[0];
 #endif
@@ -197,15 +197,15 @@ typedef struct _SUPPORTED_KEY_FORMATS {
 #pragma pack(push)
 #pragma pack(1)
 typedef struct _NEXT_BLOCK_ENCRYPTION_STATUS {
-    UINT16 PageCode; // Network Byte Order
-    UINT16 PageLength; // Network Byte Order
-    UINT64 BlockNumber; // Network Byte Order
-    UCHAR EncryptionStatus : 4; // LSb of [12]
-    UCHAR CompressionStatus : 4; // MSb of [12]
+    UINT16 PageCode; /* Network Byte Order */
+    UINT16 PageLength; /* Network Byte Order */
+    UINT64 BlockNumber; /* Network Byte Order */
+    UCHAR EncryptionStatus : 4; /* LSb of [12] */
+    UCHAR CompressionStatus : 4; /* MSb of [12] */
     UCHAR AlgorithmIndex;
-    UCHAR RawDecryptionModeDisabledStatus : 1; // LSb of [14]
+    UCHAR RawDecryptionModeDisabledStatus : 1; /* LSb of [14] */
     UCHAR EncryptionModeExternalStatus : 1;
-    UCHAR Reserved1 : 6; // MSb of [14]
+    UCHAR Reserved1 : 6; /* MSb of [14] */
     UCHAR KADFormat;
 #if !defined(__midl)
     UCHAR KADList[0];
@@ -214,17 +214,17 @@ typedef struct _NEXT_BLOCK_ENCRYPTION_STATUS {
 #pragma pack(pop)
 
 typedef struct _KEY_HEADER {
-    UINT16 PageCode; // Network Byte Order
-    UINT16 PageLength; // Network Byte Order
-    UCHAR Lock : 1; // LSb of [4]
+    UINT16 PageCode; /* Network Byte Order */
+    UINT16 PageLength; /* Network Byte Order */
+    UCHAR Lock : 1; /* LSb of [4] */
     UCHAR Reserved1 : 4;
-    UCHAR Scope : 3; // MSb of [4]
-    UCHAR ClearKeyOnReservationLoss : 1; // LSb of [5]
+    UCHAR Scope : 3; /* MSb of [4] */
+    UCHAR ClearKeyOnReservationLoss : 1; /* LSb of [5] */
     UCHAR ClearKeyOnReservationPreempted : 1;
     UCHAR ClearKeyOnDemount : 1;
     UCHAR SupplementalDecryptionKey : 1;
     UCHAR RawDecryptionModeControl : 2;
-    UCHAR CheckExternalEncryptionMode : 2; // MSb of [5];
+    UCHAR CheckExternalEncryptionMode : 2; /* MSb of [5]; */
     UCHAR EncryptionMode;
     UCHAR DecriptionMode;
     UCHAR AlgorithmIndex;
@@ -239,8 +239,8 @@ typedef struct _KEY_HEADER {
 
 typedef struct _PLAIN_KEY_DESCRIPTOR {
     UCHAR Type;
-    UCHAR Authenticated : 3; // LSb of [1]
-    UCHAR Reserved1 : 5; // MSb of [1]
+    UCHAR Authenticated : 3; /* LSb of [1] */
+    UCHAR Reserved1 : 5; /* MSb of [1] */
     UCHAR Length[2];
 #if !defined(__midl)
     UCHAR Descriptor[0];
@@ -252,7 +252,7 @@ typedef struct _PLAIN_KEY_DESCRIPTOR {
 typedef struct _WRAPPED_KEY_DESCRIPTOR {
     UCHAR Type;
     UCHAR Reserved1;
-    UINT16 Length; // Network Byte Order
+    UINT16 Length; /* Network Byte Order */
 #if !defined(__midl)
     UCHAR Descriptor[0];
 #endif
@@ -263,7 +263,7 @@ typedef struct _WRAPPED_KEY_DESCRIPTOR {
 #pragma pack(1)
 typedef struct _CERTIFICATE_DATA {
     UCHAR Reserved1[2];
-    UINT16 Length; // Network Byte Order
+    UINT16 Length; /* Network Byte Order */
 #if !defined(__midl)
     UCHAR Certificate[0];
 #endif
@@ -273,30 +273,30 @@ typedef struct _CERTIFICATE_DATA {
 #pragma pack(push)
 #pragma pack(1)
 typedef struct _SENSE_INFO {
-    UCHAR ErrorCode : 7; // LSb of [0]
-    UCHAR Valid : 1; // MSb of [0]
+    UCHAR ErrorCode : 7; /* LSb of [0] */
+    UCHAR Valid : 1; /* MSb of [0] */
     UCHAR SegmentNumber;
-    UCHAR SenseKey : 4; // LSb of [3]
+    UCHAR SenseKey : 4; /* LSb of [3] */
     UCHAR Reserved1 : 1;
     UCHAR InvalidLengthIndicator : 1;
     UCHAR EndOfMedium : 1;
-    UCHAR Mark : 1; // MSb of [3]
+    UCHAR Mark : 1; /* MSb of [3] */
     UCHAR InformationBytes[4];
     UCHAR AdditionalSenseLength;
     UCHAR CommandSpecificInformationBytes[4];
     UCHAR AdditionalSenseCode;
     UCHAR AdditionalSenseCodeQualifier;
     UCHAR FieldReplaceableUnitCode;
-    UCHAR BitPointer : 3; // LSb of [15]
+    UCHAR BitPointer : 3; /* LSb of [15] */
     UCHAR BitPointerValid : 1;
     UCHAR Reserved2 : 2;
     UCHAR CommandData : 1;
-    UCHAR SenseKeySpecificValid : 1; // MSb of [15]
+    UCHAR SenseKeySpecificValid : 1; /* MSb of [15] */
     UCHAR FieldPointer[2];
     UCHAR Reserved3[3];
-    UCHAR Reserved4 : 3; // LSb of [21]
+    UCHAR Reserved4 : 3; /* LSb of [21] */
     UCHAR CleanNeeded : 1;
-    UCHAR Reserved5 : 4; // MSb of [22]
+    UCHAR Reserved5 : 4; /* MSb of [22] */
     UCHAR Padding[2];
 } SENSE_INFO, *PSENSE_INFO;
 #pragma pack(pop)
@@ -395,10 +395,9 @@ _Success_(return)
 BOOL
 QueryPropertyForDevice(_In_ HANDLE, _Out_ PULONG, _Out_ PUCHAR, _Out_ PSTORAGE_BUS_TYPE);
 
-
-//
-// Command Descriptor Block constants.
-//
+/*
+* Command Descriptor Block constants.
+*/
 
 #define CDB6GENERIC_LENGTH                   6
 #define CDB10GENERIC_LENGTH                  10
@@ -407,7 +406,7 @@ QueryPropertyForDevice(_In_ HANDLE, _Out_ PULONG, _Out_ PUCHAR, _Out_ PSTORAGE_B
 #define SETBITOFF                            0
 
 
-// SPIN/SPOUT Extensions to scsi.h
+/* SPIN / SPOUT Extensions to scsi.h */
 #define SECURITY_PROTOCOL_INFO 0x00
 #define SECURITY_PROTOCOL_TCG1 0x01
 #define SECURITY_PROTOCOL_TCG2 0x02

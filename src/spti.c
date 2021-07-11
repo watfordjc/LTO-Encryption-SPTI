@@ -536,7 +536,7 @@ main(
 
 
 		/*
-		// CDB: Security Protocol In, Security Protocol Information, Certificate Data
+		* CDB: Security Protocol In, Security Protocol Information, Certificate Data
 		*/
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_INFO, SPIN_CERTIFICATE_DATA);
 		if (length == 0) { goto Cleanup; }
