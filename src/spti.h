@@ -317,8 +317,6 @@ typedef struct _MAM_ATTRIBUTE_VALUES_SERVICE_ACTION {
 #pragma pack(1)
 typedef struct _MAM_ATTRIBUTE_LIST_SERVICE_ACTION {
     UINT32 AvailableData; /* Network Byte Order */
-    UCHAR First;
-    UCHAR NumberAvailable;
 #if !defined(__midl)
     UINT16 AttributeIdentifierList[0];
 #endif

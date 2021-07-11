@@ -647,6 +647,10 @@ main(
 			responseTruncated = attributeCount > maximumAttributeCount;
 			// Parse the response
 			printf("* Available Data: %d bytes (%d attributes%s)\n", supportedAttributeData->AvailableData, attributeCount, responseTruncated ? ", truncated to first " + maximumAttributeCount : "");
+			if (attributeCount > maximumAttributeCount)
+			{
+				attributeCount = maximumAttributeCount;
+			}
 			for (int i = 0; i < attributeCount; i++) {
 				UINT16 attribute = (UINT16)ntohs(supportedAttributeData->AttributeIdentifierList[i]);
 				printf("  * Attribute %d (0x%04X)\n", attribute, attribute);
@@ -678,9 +682,93 @@ main(
 			}
 		}
 
+		/*
+		* CDB: Read Attribute, Attribute List
+		*/
+		length = CreateReadAttributesSrb(psptwb_ex, READ_ATTRIBUTE_SERVICE_ATTRIBUTE_LIST, 0, 0, 1);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		{
+			printf("Parsing MAM Available Attributes...\n");
+			PMAM_ATTRIBUTE_LIST_SERVICE_ACTION availableAttributesData = (PMAM_ATTRIBUTE_LIST_SERVICE_ACTION)psptwb_ex->ucDataBuf;
+			// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+			availableAttributesData->AvailableData = ntohl(availableAttributesData->AvailableData);
+			// Calculate the maximum number of attributes given our buffer size
+			int maximumAttributeCount = (SPTWB_DATA_LENGTH - sizeof(availableAttributesData->AvailableData)) / sizeof(availableAttributesData->AttributeIdentifierList[0]);
+			// Get number of supported attributes
+			int attributeCount = availableAttributesData->AvailableData / sizeof(availableAttributesData->AttributeIdentifierList[0]);
+			// Parse the response
+			printf("* Available Data: %d bytes (%d attributes%s)\n", availableAttributesData->AvailableData, attributeCount, responseTruncated ? ", truncated to first " + maximumAttributeCount : "");
+			if (attributeCount > maximumAttributeCount)
+			{
+				attributeCount = maximumAttributeCount;
+			}
+			for (int i = 0; i < attributeCount; i++) {
+				UINT16 attribute = (UINT16)ntohs(availableAttributesData->AttributeIdentifierList[i]);
+				printf("  * Attribute %d (0x%04X)\n", attribute, attribute);
+			}
+			printf("\n");
+		}
+		else {
+			PSENSE_INFO senseInfo = (PSENSE_INFO)psptwb_ex->ucSenseBuf;
+			if (psptwb_ex->spt.ScsiStatus == SCSISTAT_CHECK_CONDITION)
+			{
+				if (senseInfo->SenseKey == SCSI_SENSE_NOT_READY && senseInfo->AdditionalSenseCode == SCSI_ADSENSE_NO_MEDIA_IN_DEVICE)
+				{
+					printf("** Unable to read Available Attributes from MAM - tape drive is empty. **\n\n");
+					goto Cleanup;
+				}
+				else if (senseInfo->SenseKey == SCSI_SENSE_MEDIUM_ERROR)
+				{
+					if ((senseInfo->AdditionalSenseCode == SCSI_ADSENSE_LUN_NOT_READY && senseInfo->AdditionalSenseCodeQualifier == SCSI_SENSEQ_MAM_NOT_ACCESSIBLE) ||
+						(senseInfo->AdditionalSenseCode == SCSI_ADSENSE_UNRECOVERED_ERROR && senseInfo->AdditionalSenseCodeQualifier == SCSI_SENSEQ_MAM_READ_ERROR))
+					{
+						printf("** Unable to read Available Attributes from MAM. **\n\n");
+					}
+				}
+			}
+		}
+
+
+		/*
+		* CDB: Read Attribute, Volume List
+		*/
+		length = CreateReadAttributesSrb(psptwb_ex, READ_ATTRIBUTE_SERVICE_VOLUME_LIST, 0, 0, 1);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		{
+			printf("Parsing MAM Volume List...\n");
+			PMAM_VOLUME_LIST_SERVICE_ACTION volumeListData = (PMAM_VOLUME_LIST_SERVICE_ACTION)psptwb_ex->ucDataBuf;
+			printf("* First Volume: %d\n", volumeListData->First);
+			printf("* Number of Volumes: %d\n", volumeListData->NumberAvailable);
+			printf("\n");
+		}
+
+
+		/*
+		* CDB: Read Attribute, Partition List
+		*/
+		length = CreateReadAttributesSrb(psptwb_ex, READ_ATTRIBUTE_SERVICE_PARTITION_LIST, 0, 0, 1);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		{
+			printf("Parsing MAM Partition List...\n");
+			PMAM_PARTITION_LIST_SERVICE_ACTION partitionListData = (PMAM_PARTITION_LIST_SERVICE_ACTION)psptwb_ex->ucDataBuf;
+			printf("* First Partition Number: %d\n", partitionListData->First);
+			printf("* Number of Partitions: %d\n", partitionListData->NumberAvailable);
+			printf("\n");
+		}
+
+
 		if (!responseTruncated && ultimateAttribute >= 0)
 		{
-			// TODO: Read more MAM data
+			/* TODO: CDB: Read Attribute, Attribute Values */
 		}
 
 
