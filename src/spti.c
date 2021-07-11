@@ -239,7 +239,8 @@ main(
 		errorCode = 0,
 		returned = 0;
 
-	if ((argc < 2) || (argc > 4)) {
+	if ((argc < 2) || (argc > 4))
+	{
 		printf("---------------------------------------------------\n");
 		fprintf(stderr, "Usage:  %s <port-name> [key] [kad]\n\n", argv[0]);
 		fprintf(stderr, "Examples:\n");
@@ -280,7 +281,8 @@ main(
 					0,
 					NULL);
 
-				if (fileHandle == INVALID_HANDLE_VALUE) {
+				if (fileHandle == INVALID_HANDLE_VALUE)
+				{
 					errorCode = GetLastError();
 					fprintf(stderr, "Error opening %s. Error: %d\n",
 						string, errorCode);
@@ -288,7 +290,8 @@ main(
 				}
 				else {
 					status = QueryPropertyForDevice(fileHandle, &alignmentMask, &srbType, &storageBusType);
-					if (!status) {
+					if (!status)
+					{
 						errorCode = GetLastError();
 						fprintf(stderr, "Error getting device and/or adapter properties; "
 							"error was %d\n", errorCode);
@@ -330,12 +333,15 @@ main(
 		*devicePath = string;
 	}
 
-	if (argc > 2) {
-		if (strcmp(argv[2], "weak") == 0) {
+	if (argc > 2)
+	{
+		if (strcmp(argv[2], "weak") == 0)
+		{
 			testKey = TRUE;
 			keyFormat = SPIN_TAPE_KEY_FORMAT_PLAIN;
 		}
-		else if (strcmp(argv[2], "none") == 0) {
+		else if (strcmp(argv[2], "none") == 0)
+		{
 			clearKey = TRUE;
 			keyFormat = SPIN_TAPE_KEY_FORMAT_PLAIN;
 		}
@@ -372,7 +378,8 @@ main(
 		0,
 		NULL);
 
-	if (fileHandle == INVALID_HANDLE_VALUE) {
+	if (fileHandle == INVALID_HANDLE_VALUE)
+	{
 		errorCode = GetLastError();
 		fprintf(stderr, "Error opening %s. Error: %d\n",
 			string, errorCode);
@@ -385,7 +392,8 @@ main(
 	//
 
 	status = QueryPropertyForDevice(fileHandle, &alignmentMask, &srbType, &storageBusType);
-	if (!status) {
+	if (!status)
+	{
 		errorCode = GetLastError();
 		fprintf(stderr, "Error getting device and/or adapter properties; "
 			"error was %d\n", errorCode);
@@ -529,7 +537,8 @@ main(
 		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
 			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
-			if (pageCode == SPIN_TAPE_ENCRYPTION_STATUS) {
+			if (pageCode == SPIN_TAPE_ENCRYPTION_STATUS)
+			{
 				ParseDataEncryptionStatus((PDATA_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, encryptionAlgorithm, keyAssociatedDataStatusLength, keyAssociatedDataStatus);
 			}
 		}
@@ -782,7 +791,8 @@ main(
 		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
 			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
-			if (pageCode == SPIN_TAPE_ENCRYPTION_STATUS) {
+			if (pageCode == SPIN_TAPE_ENCRYPTION_STATUS)
+			{
 				ParseDataEncryptionStatus((PDATA_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, encryptionAlgorithm, keyAssociatedDataStatusLength, keyAssociatedDataStatus);
 			}
 		}
@@ -797,7 +807,8 @@ main(
 		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 		{
 			pageCode = psptwb_ex->ucDataBuf[0] << 8 | psptwb_ex->ucDataBuf[1];
-			if (pageCode == SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS) {
+			if (pageCode == SPIN_TAPE_NEXT_BLOCK_ENCRYPTION_STATUS)
+			{
 				encryptionStatus = ParseNextBlockEncryptionStatus((PNEXT_BLOCK_ENCRYPTION_STATUS)psptwb_ex->ucDataBuf, encryptionAlgorithm, keyAssociatedDataNextBlockLength, keyAssociatedDataNextBlock);
 			}
 		}
@@ -811,42 +822,18 @@ Cleanup:
 	printf("Press return/enter to exit.\n");
 	getchar();
 #endif
-	if (keyAssociatedDataStatus[0] != NULL) {
-		free(keyAssociatedDataStatus[0]);
-	}
-	if (keyAssociatedDataStatus[1] != NULL) {
-		free(keyAssociatedDataStatus[1]);
-	}
-	if (keyAssociatedDataNextBlock[0] != NULL) {
-		free(keyAssociatedDataNextBlock[0]);
-	}
-	if (keyAssociatedDataNextBlock[1] != NULL) {
-		free(keyAssociatedDataNextBlock[1]);
-	}
-	if (encryptionAlgorithm != NULL) {
-		free(encryptionAlgorithm);
-	}
-	if (pUnAlignedBuffer != NULL) {
-		free(pUnAlignedBuffer);
-	}
-	if (logicalUnitIdentifier != NULL) {
-		free(logicalUnitIdentifier);
-	}
-	if (wrappedDescriptors != NULL) {
-		free(wrappedDescriptors);
-	}
-	if (psptwb_ex != NULL) {
-		free(psptwb_ex);
-	}
-	if (testKey && key != NULL)
-	{
-		free(key);
-	}
+	if (keyAssociatedDataStatus[0] != NULL) { free(keyAssociatedDataStatus[0]); }
+	if (keyAssociatedDataStatus[1] != NULL) { free(keyAssociatedDataStatus[1]); }
+	if (keyAssociatedDataNextBlock[0] != NULL) { free(keyAssociatedDataNextBlock[0]); }
+	if (keyAssociatedDataNextBlock[1] != NULL) { free(keyAssociatedDataNextBlock[1]); }
+	if (encryptionAlgorithm != NULL) { free(encryptionAlgorithm); }
+	if (pUnAlignedBuffer != NULL) { free(pUnAlignedBuffer); }
+	if (logicalUnitIdentifier != NULL) { free(logicalUnitIdentifier); }
+	if (wrappedDescriptors != NULL) { free(wrappedDescriptors); }
+	if (psptwb_ex != NULL) { free(psptwb_ex); }
+	if (testKey && key != NULL) { free(key); }
 	CloseHandle(fileHandle);
-	if (devicePath != NULL)
-	{
-		free(devicePath);
-	}
+	if (devicePath != NULL) { free(devicePath); }
 	if (length == 0) {
 		fprintf(stderr, "An SRB was not successfully created.");
 		return -1;
@@ -987,12 +974,14 @@ ParseSecurityCompliance(PSECURITY_PROTOCOL_COMPLIANCE pSecurityCompliance)
 			break;
 		}
 		printf("* Descriptor Type: 0x%04x (%s)\n", currentDescriptor->DescriptorType, description);
-		if (currentDescriptor->DescriptorType == SPIN_SECURITY_COMPLIANCE_FIPS140) {
+		if (currentDescriptor->DescriptorType == SPIN_SECURITY_COMPLIANCE_FIPS140)
+		{
 			PSECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR_INFO_FIPS140 descriptorInfo = (PSECURITY_PROTOCOL_COMPLIANCE_DESCRIPTOR_INFO_FIPS140)(currentDescriptor->DescriptorInformation);
 			// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
 			currentDescriptor->DescriptorType = ntohs(currentDescriptor->DescriptorType);
 			currentDescriptor->DescriptorLength = ntohl(currentDescriptor->DescriptorLength);
-			switch (descriptorInfo->Revision) {
+			switch (descriptorInfo->Revision)
+			{
 			case SPIN_SECURITY_COMPLIANCE_FIPS140_2:
 				description = "FIPS 140-2";
 				break;
@@ -1005,17 +994,20 @@ ParseSecurityCompliance(PSECURITY_PROTOCOL_COMPLIANCE pSecurityCompliance)
 			printf("  * Revision: %s\n", description);
 			printf("  * Overall Security Level: %c\n", descriptorInfo->OverallSecurityLevel);
 			PCHAR hardwareVersion = NullPaddedNullTerminatedToString(sizeof(descriptorInfo->HardwareVersion), descriptorInfo->HardwareVersion);
-			if (hardwareVersion != NULL) {
+			if (hardwareVersion != NULL)
+			{
 				printf("  * Hardware Level: %s\n", hardwareVersion);
 				free(hardwareVersion);
 			}
 			PCHAR softwareVersion = NullPaddedNullTerminatedToString(sizeof(descriptorInfo->SoftwareVersion), descriptorInfo->SoftwareVersion);
-			if (softwareVersion != NULL) {
+			if (softwareVersion != NULL)
+			{
 				printf("  * Software Level: %s\n", softwareVersion);
 				free(softwareVersion);
 			}
 			PCHAR moduleName = NullPaddedNullTerminatedToString(sizeof(descriptorInfo->ModuleName), descriptorInfo->ModuleName);
-			if (moduleName != NULL) {
+			if (moduleName != NULL)
+			{
 				printf("  * Module Name: %s\n", moduleName);
 				free(moduleName);
 			}
@@ -1043,18 +1035,22 @@ NullPaddedNullTerminatedToString(UINT32 arrayLength, PUCHAR characterArray)
 	{
 		currentChar = characterArray[i];
 		// Assume leading zero bytes are padding
-		if (currentChar == 0 && !endOfLeadingZeroes) {
+		if (currentChar == 0 && !endOfLeadingZeroes)
+		{
 			continue;
 		}
 		// If a non-zero byte has occurred and this byte is zero, assume null termination character
-		else if (currentChar == 0 && endOfLeadingZeroes) {
+		else if (currentChar == 0 && endOfLeadingZeroes)
+		{
 			return newArray;
 		}
 		// If byte is non-zero, assume it is part of the string
-		else if (currentChar != 0) {
+		else if (currentChar != 0)
+		{
 			newArray[nextChar] = currentChar;
 			nextChar++;
-			if (!endOfLeadingZeroes) {
+			if (!endOfLeadingZeroes)
+			{
 				endOfLeadingZeroes = TRUE;
 			}
 		}
@@ -1076,7 +1072,8 @@ ParseSupportedSecurityProtocolList(PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA 
 	int listCount = securityProtocolList->SupportedSecurityListLength[0] << 8 | securityProtocolList->SupportedSecurityListLength[1];
 	for (int i = 0; i < listCount; i++)
 	{
-		if (securityProtocolList->SupportedSecurityProtocol[i] == SECURITY_PROTOCOL_TAPE) {
+		if (securityProtocolList->SupportedSecurityProtocol[i] == SECURITY_PROTOCOL_TAPE)
+		{
 			*pCapTapeEncryption = TRUE;
 		}
 		printf("* Supported Security Protocol: 0x%02X (%s)\n",
@@ -1221,7 +1218,8 @@ ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY dev
 	BOOL keyFormatConsistent = FALSE;
 	BOOL keyLengthConsistent = FALSE;
 	// Analyse the key metadata for consistency
-	switch (deviceServerKeyWrappingPublicKey->PublicKeyType) {
+	switch (deviceServerKeyWrappingPublicKey->PublicKeyType)
+	{
 	case SPIN_TAPE_PUBKEY_TYPE_RSA2048:
 		description = "RSA-2048";
 		keyFormatConsistent = deviceServerKeyWrappingPublicKey->PublicKeyFormat == SPIN_TAPE_PUBKEY_FORMAT_RSA2048;
@@ -1253,11 +1251,13 @@ ParseDeviceServerKeyWrappingPublicKey(PDEVICE_SERVER_KEY_WRAPPING_PUBLIC_KEY dev
 	}
 	printf("* Public Key Type: %s\n", description);
 	// If the key type is handled, cast the PublicKey field to a key type specific struct
-	if (deviceServerKeyWrappingPublicKey->PublicKeyType == SPIN_TAPE_PUBKEY_TYPE_RSA2048) {
+	if (deviceServerKeyWrappingPublicKey->PublicKeyType == SPIN_TAPE_PUBKEY_TYPE_RSA2048)
+	{
 		rsa2048PublicKey = (PRSA2048_PUBLIC_KEY)deviceServerKeyWrappingPublicKey->PublicKey;
 	}
 	// If RSA-2048, find the first (most significant) non-zero byte for the modulus and exponent
-	if (rsa2048PublicKey != NULL) {
+	if (rsa2048PublicKey != NULL)
+	{
 		for (int i = 0; i < modulusLength; i++)
 		{
 			if (rsa2048PublicKey->Modulus[i] == 0)
@@ -1397,7 +1397,8 @@ ParseDeviceIdentifiers(PVPD_IDENTIFICATION_PAGE deviceIdentifiers, PUINT16 pLogi
 		{
 		case VpdIdentifierTypeVendorId:
 			printf("* Vendor ID (%s): ", description);
-			if (identifier->CodeSet == VpdCodeSetAscii) {
+			if (identifier->CodeSet == VpdCodeSetAscii)
+			{
 				PCHAR vendorId = calloc((size_t)identifier->IdentifierLength + 1, sizeof(UCHAR));
 				if (vendorId != NULL)
 				{
@@ -1412,7 +1413,8 @@ ParseDeviceIdentifiers(PVPD_IDENTIFICATION_PAGE deviceIdentifiers, PUINT16 pLogi
 			break;
 		case VpdIdentifierTypeFCPHName:
 			printf("* IEEE WWN (%s): ", description);
-			if (identifier->CodeSet == VpdCodeSetBinary) {
+			if (identifier->CodeSet == VpdCodeSetBinary)
+			{
 				for (int j = 0; j < identifier->IdentifierLength; j++)
 				{
 					if (j > 0) { printf(":"); }
@@ -1427,13 +1429,15 @@ ParseDeviceIdentifiers(PVPD_IDENTIFICATION_PAGE deviceIdentifiers, PUINT16 pLogi
 			}
 			break;
 		case VpdIdentifierTypePortRelative:
-			if (identifier->CodeSet == VpdCodeSetBinary) {
+			if (identifier->CodeSet == VpdCodeSetBinary)
+			{
 				identifierInt = identifier->Identifier[0] << 24 | identifier->Identifier[1] << 16 | identifier->Identifier[2] << 8 | identifier->Identifier[3];
 				printf("* Relative Port Identifier: %d\n", identifierInt);
 			}
 			break;
 		case VpdIdentifierTypeTargetPortGroup:
-			if (identifier->CodeSet == VpdCodeSetBinary) {
+			if (identifier->CodeSet == VpdCodeSetBinary)
+			{
 				identifierInt = identifier->Identifier[0] << 24 | identifier->Identifier[1] << 16 | identifier->Identifier[2] << 8 | identifier->Identifier[3];
 				printf("* Target Port Group Identifier: %d\n", identifierInt);
 			}
@@ -1442,9 +1446,12 @@ ParseDeviceIdentifiers(PVPD_IDENTIFICATION_PAGE deviceIdentifiers, PUINT16 pLogi
 			printf("* Other identifier (%s):...\n", description);
 			PrintDataBuffer(identifier->Identifier, identifier->IdentifierLength);
 		}
-		if ((identifier->Reserved2 >> 1) != 0x0) {
-			if ((identifier->Association == VpdAssocPort || identifier->Association == VpdAssocTarget) && (identifier->Reserved2 >> 1) == 0x1) {
-				switch (identifier->Reserved) {
+		if ((identifier->Reserved2 >> 1) != 0x0)
+		{
+			if ((identifier->Association == VpdAssocPort || identifier->Association == VpdAssocTarget) && (identifier->Reserved2 >> 1) == 0x1)
+			{
+				switch (identifier->Reserved)
+				{
 				case 0x0:
 					description = "Fibre Channel";
 					break;
@@ -1470,7 +1477,8 @@ ParseDeviceIdentifiers(PVPD_IDENTIFICATION_PAGE deviceIdentifiers, PUINT16 pLogi
 				printf("   via %s (0x%01X)\n", description, identifier->Reserved);
 			}
 		}
-		if (currentIdentifier == 0) {
+		if (currentIdentifier == 0)
+		{
 			*pLogicalUnitIdentifierLength = identifier->IdentifierLength;
 			PUCHAR logicalUnitIdentifier = calloc(identifier->IdentifierLength, sizeof(UCHAR));
 			if (logicalUnitIdentifier != NULL)
@@ -1783,7 +1791,8 @@ SetDataEncryption(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UINT32 allocatio
 		keyHeader->AlgorithmIndex = aesGcmAlgorithmIndex;
 		keyHeader->KeyFormat = (UCHAR)keyFormat;
 		printf("  * Key format: 0x%02x\n", keyFormat);
-		if (kad != NULL) {
+		if (kad != NULL)
+		{
 			keyHeader->KADFormat = SPOUT_TAPE_KAD_FORMAT_ASCII;
 		}
 		printf("  * Key field length: 0x%04x (%d bytes)\n", keyFieldLength, keyFieldLength);
@@ -1953,7 +1962,8 @@ ProcessKey(int keyFormat, int keyType, int keyLength, PUCHAR key, UINT16 wrapped
 	PUCHAR keyField = NULL;
 	// LTO encryption uses 256 bit (32 byte) keys; assume larger keys are hex rather than binary
 	BOOL keyIsHex = keyLength > 32;
-	if (keyIsHex) {
+	if (keyIsHex)
+	{
 		keyLength = keyLength / 2;
 	}
 
@@ -2223,7 +2233,8 @@ PrintError(ULONG ErrorCode)
 		NULL
 	);
 
-	if (count != 0) {
+	if (count != 0)
+	{
 		fprintf(stderr, "%s\n", errorBuffer);
 	}
 	else {
@@ -2238,15 +2249,19 @@ PrintDataBuffer(_In_reads_(BufferLength) PUCHAR DataBuffer, _In_ ULONG BufferLen
 
 	printf("      00  01  02  03  04  05  06  07   08  09  0A  0B  0C  0D  0E  0F\n");
 	printf("      ---------------------------------------------------------------\n");
-	for (Cnt = 0; Cnt < BufferLength; Cnt++) {
-		if ((Cnt) % 16 == 0) {
+	for (Cnt = 0; Cnt < BufferLength; Cnt++)
+	{
+		if ((Cnt) % 16 == 0)
+		{
 			printf(" %03X  ", Cnt);
 		}
 		printf("%02X  ", DataBuffer[Cnt]);
-		if ((Cnt + 1) % 8 == 0) {
+		if ((Cnt + 1) % 8 == 0)
+		{
 			printf(" ");
 		}
-		if ((Cnt + 1) % 16 == 0) {
+		if ((Cnt + 1) % 16 == 0)
+		{
 			printf("\n");
 		}
 	}
@@ -2259,7 +2274,8 @@ PrintAdapterDescriptor(PSTORAGE_ADAPTER_DESCRIPTOR AdapterDescriptor)
 	ULONG trueMaximumTransferLength;
 	LPCSTR busType;
 
-	if (AdapterDescriptor->BusType < NUMBER_OF_BUS_TYPE_STRINGS) {
+	if (AdapterDescriptor->BusType < NUMBER_OF_BUS_TYPE_STRINGS)
+	{
 		busType = BusTypeStrings[AdapterDescriptor->BusType];
 	}
 	else {
@@ -2267,7 +2283,8 @@ PrintAdapterDescriptor(PSTORAGE_ADAPTER_DESCRIPTOR AdapterDescriptor)
 	}
 
 	// subtract one page, as transfers do not always start on a page boundary
-	if (AdapterDescriptor->MaximumPhysicalPages > 1) {
+	if (AdapterDescriptor->MaximumPhysicalPages > 1)
+	{
 		trueMaximumTransferLength = AdapterDescriptor->MaximumPhysicalPages - 1;
 	}
 	else {
@@ -2277,12 +2294,14 @@ PrintAdapterDescriptor(PSTORAGE_ADAPTER_DESCRIPTOR AdapterDescriptor)
 	trueMaximumTransferLength <<= PAGE_SHIFT;
 
 	// take the minimum of the two
-	if (trueMaximumTransferLength > AdapterDescriptor->MaximumTransferLength) {
+	if (trueMaximumTransferLength > AdapterDescriptor->MaximumTransferLength)
+	{
 		trueMaximumTransferLength = AdapterDescriptor->MaximumTransferLength;
 	}
 
 	// always allow at least a single page transfer
-	if (trueMaximumTransferLength < PAGE_SIZE) {
+	if (trueMaximumTransferLength < PAGE_SIZE)
+	{
 		trueMaximumTransferLength = PAGE_SIZE;
 	}
 
@@ -2329,7 +2348,8 @@ PrintDeviceDescriptor(PSTORAGE_DEVICE_DESCRIPTOR DeviceDescriptor)
 	LPCSTR serialNumber = "";
 	LPCSTR busType;
 
-	if ((ULONG)DeviceDescriptor->BusType < NUMBER_OF_BUS_TYPE_STRINGS) {
+	if ((ULONG)DeviceDescriptor->BusType < NUMBER_OF_BUS_TYPE_STRINGS)
+	{
 		busType = BusTypeStrings[DeviceDescriptor->BusType];
 	}
 	else {
@@ -2337,22 +2357,26 @@ PrintDeviceDescriptor(PSTORAGE_DEVICE_DESCRIPTOR DeviceDescriptor)
 	}
 
 	if ((DeviceDescriptor->ProductIdOffset != 0) &&
-		(DeviceDescriptor->ProductIdOffset != -1)) {
+		(DeviceDescriptor->ProductIdOffset != -1))
+{
 		productId = (LPCSTR)(DeviceDescriptor);
 		productId += (ULONG_PTR)DeviceDescriptor->ProductIdOffset;
 	}
 	if ((DeviceDescriptor->VendorIdOffset != 0) &&
-		(DeviceDescriptor->VendorIdOffset != -1)) {
+		(DeviceDescriptor->VendorIdOffset != -1))
+{
 		vendorId = (LPCSTR)(DeviceDescriptor);
 		vendorId += (ULONG_PTR)DeviceDescriptor->VendorIdOffset;
 	}
 	if ((DeviceDescriptor->ProductRevisionOffset != 0) &&
-		(DeviceDescriptor->ProductRevisionOffset != -1)) {
+		(DeviceDescriptor->ProductRevisionOffset != -1))
+{
 		productRevision = (LPCSTR)(DeviceDescriptor);
 		productRevision += (ULONG_PTR)DeviceDescriptor->ProductRevisionOffset;
 	}
 	if ((DeviceDescriptor->SerialNumberOffset != 0) &&
-		(DeviceDescriptor->SerialNumberOffset != -1)) {
+		(DeviceDescriptor->SerialNumberOffset != -1))
+{
 		serialNumber = (LPCSTR)(DeviceDescriptor);
 		serialNumber += (ULONG_PTR)DeviceDescriptor->SerialNumberOffset;
 	}
@@ -2383,7 +2407,8 @@ PrintDeviceDescriptor(PSTORAGE_DEVICE_DESCRIPTOR DeviceDescriptor)
 		serialNumber,
 		busType,
 		(DeviceDescriptor->RawPropertiesLength ? "Follows" : "None"));
-	if (DeviceDescriptor->RawPropertiesLength != 0) {
+	if (DeviceDescriptor->RawPropertiesLength != 0)
+	{
 		PrintDataBuffer(DeviceDescriptor->RawDeviceProperties,
 			DeviceDescriptor->RawPropertiesLength);
 	}
@@ -2469,13 +2494,15 @@ PrintStatusResultsEx(
 {
 	ULONG errorCode;
 
-	if (!status) {
+	if (!status)
+	{
 		fprintf(stderr, "Error: %d  ",
 			errorCode = GetLastError());
 		PrintError(errorCode);
 		return;
 	}
-	if (psptwb_ex->spt.ScsiStatus) {
+	if (psptwb_ex->spt.ScsiStatus)
+{
 		PrintSenseInfoEx(psptwb_ex);
 		return;
 	}
@@ -2494,7 +2521,8 @@ VOID
 PrintSenseInfoEx(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex)
 {
 	printf("* Scsi status: %02Xh\n", psptwb_ex->spt.ScsiStatus);
-	if (psptwb_ex->spt.SenseInfoLength == 0) {
+	if (psptwb_ex->spt.SenseInfoLength == 0)
+{
 		return;
 	}
 	printf("* Sense Info -- consult SCSI spec for details\n");
@@ -2566,7 +2594,8 @@ QueryPropertyForDevice(
 	//  Second, allocate and retrieve storage adapter descriptor
 	//  Third, get size required for storage device descriptor
 	//  Fourth, allocate and retrieve storage device descriptor
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < 4; i++)
+	{
 
 		PVOID buffer = NULL;
 		ULONG bufferSize = 0;
@@ -2574,7 +2603,8 @@ QueryPropertyForDevice(
 
 		STORAGE_PROPERTY_QUERY query = { 0 };
 
-		switch (i) {
+		switch (i)
+{
 		case 0: {
 			query.QueryType = PropertyStandardQuery;
 			query.PropertyId = StorageAdapterProperty;
@@ -2586,9 +2616,11 @@ QueryPropertyForDevice(
 			query.QueryType = PropertyStandardQuery;
 			query.PropertyId = StorageAdapterProperty;
 			bufferSize = header.Size;
-			if (bufferSize != 0) {
+			if (bufferSize != 0)
+{
 				adapterDescriptor = LocalAlloc(LPTR, bufferSize);
-				if (adapterDescriptor == NULL) {
+				if (adapterDescriptor == NULL)
+{
 					goto Cleanup;
 				}
 			}
@@ -2607,9 +2639,11 @@ QueryPropertyForDevice(
 			query.PropertyId = StorageDeviceProperty;
 			bufferSize = header.Size;
 
-			if (bufferSize != 0) {
+			if (bufferSize != 0)
+{
 				deviceDescriptor = LocalAlloc(LPTR, bufferSize);
-				if (deviceDescriptor == NULL) {
+				if (deviceDescriptor == NULL)
+{
 					goto Cleanup;
 				}
 			}
@@ -2619,7 +2653,8 @@ QueryPropertyForDevice(
 		}
 
 		// buffer can be NULL if the property queried DNE.
-		if (buffer != NULL) {
+		if (buffer != NULL)
+		{
 			RtlZeroMemory(buffer, bufferSize);
 
 			// all setup, do the ioctl
@@ -2631,14 +2666,18 @@ QueryPropertyForDevice(
 				bufferSize,
 				&returnedData,
 				FALSE);
-			if (!ok) {
-				if (GetLastError() == ERROR_MORE_DATA) {
+			if (!ok)
+{
+				if (GetLastError() == ERROR_MORE_DATA)
+{
 					// this is ok, we'll ignore it here
 				}
-				else if (GetLastError() == ERROR_INVALID_FUNCTION) {
+				else if (GetLastError() == ERROR_INVALID_FUNCTION)
+{
 					// this is also ok, the property DNE
 				}
-				else if (GetLastError() == ERROR_NOT_SUPPORTED) {
+				else if (GetLastError() == ERROR_NOT_SUPPORTED)
+{
 					// this is also ok, the property DNE
 				}
 				else {
@@ -2654,7 +2693,8 @@ QueryPropertyForDevice(
 	// adapterDescriptor is now allocated and full of data.
 	// deviceDescriptor is now allocated and full of data.
 
-	if (adapterDescriptor == NULL) {
+	if (adapterDescriptor == NULL)
+{
 		fprintf(stderr, "   ***** No adapter descriptor supported on the device *****\n");
 	}
 	else {
@@ -2663,7 +2703,8 @@ QueryPropertyForDevice(
 		*SrbType = adapterDescriptor->SrbType;
 	}
 
-	if (deviceDescriptor == NULL) {
+	if (deviceDescriptor == NULL)
+{
 		fprintf(stderr, "   ***** No device descriptor supported on the device  *****\n");
 	}
 	else {
@@ -2674,10 +2715,12 @@ QueryPropertyForDevice(
 	failed = FALSE;
 
 Cleanup:
-	if (adapterDescriptor != NULL) {
+	if (adapterDescriptor != NULL)
+{
 		LocalFree(adapterDescriptor);
 	}
-	if (deviceDescriptor != NULL) {
+	if (deviceDescriptor != NULL)
+{
 		LocalFree(deviceDescriptor);
 	}
 	return (!failed);
