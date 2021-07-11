@@ -625,6 +625,66 @@ main(
 
 
 		/*
+		* CDB: Read Attribute, Supported Attributes
+		*/
+		INT32 ultimateAttribute = -1;
+		BOOL responseTruncated = FALSE;
+		length = CreateReadAttributesSrb(psptwb_ex, READ_ATTRIBUTE_SERVICE_SUPPORTED_ATTRIBUTES, 0, 0, 1);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		{
+			printf("Parsing MAM Supported Attributes...\n");
+			PMAM_SUPPORTED_ATTRIBUTES_SERVICE_ACTION supportedAttributeData = (PMAM_SUPPORTED_ATTRIBUTES_SERVICE_ACTION)psptwb_ex->ucDataBuf;
+			// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+			supportedAttributeData->AvailableData = ntohl(supportedAttributeData->AvailableData);
+			// Calculate the maximum number of attributes given our buffer size
+			int maximumAttributeCount = (SPTWB_DATA_LENGTH - sizeof(supportedAttributeData->AvailableData)) / sizeof(supportedAttributeData->AttributeIdentifierList[0]);
+			// Get number of supported attributes
+			int attributeCount = supportedAttributeData->AvailableData / sizeof(supportedAttributeData->AttributeIdentifierList[0]);
+			// It is unlikely the response is truncated given our buffer size, but it is possible
+			responseTruncated = attributeCount > maximumAttributeCount;
+			// Parse the response
+			printf("* Available Data: %d bytes (%d attributes%s)\n", supportedAttributeData->AvailableData, attributeCount, responseTruncated ? ", truncated to first " + maximumAttributeCount : "");
+			for (int i = 0; i < attributeCount; i++) {
+				UINT16 attribute = (UINT16)ntohs(supportedAttributeData->AttributeIdentifierList[i]);
+				printf("  * Attribute %d (0x%04X)\n", attribute, attribute);
+			}
+			// Remember the last attribute in the list if we received the full list, so we can tell if other lists are truncated later
+			if (!responseTruncated)
+			{
+				ultimateAttribute = (UINT16)ntohs(supportedAttributeData->AttributeIdentifierList[attributeCount - 1]);
+			}
+			printf("\n");
+		}
+		else {
+			PSENSE_INFO senseInfo = (PSENSE_INFO)psptwb_ex->ucSenseBuf;
+			if (psptwb_ex->spt.ScsiStatus == SCSISTAT_CHECK_CONDITION)
+			{
+				if (senseInfo->SenseKey == SCSI_SENSE_NOT_READY && senseInfo->AdditionalSenseCode == SCSI_ADSENSE_NO_MEDIA_IN_DEVICE)
+				{
+					printf("** Unable to read Supported Attributes from MAM - tape drive is empty. **\n\n");
+					goto Cleanup;
+				}
+				else if (senseInfo->SenseKey == SCSI_SENSE_MEDIUM_ERROR)
+				{
+					if ((senseInfo->AdditionalSenseCode == SCSI_ADSENSE_LUN_NOT_READY && senseInfo->AdditionalSenseCodeQualifier == SCSI_SENSEQ_MAM_NOT_ACCESSIBLE) ||
+						(senseInfo->AdditionalSenseCode == SCSI_ADSENSE_UNRECOVERED_ERROR && senseInfo->AdditionalSenseCodeQualifier == SCSI_SENSEQ_MAM_READ_ERROR))
+					{
+						printf("** Unable to read Supported Attributes from MAM. **\n\n");
+					}
+				}
+			}
+		}
+
+		if (!responseTruncated && ultimateAttribute >= 0)
+		{
+			// TODO: Read more MAM data
+		}
+
+
+		/*
 		* CDB: Security Protocol In, Tape Data Encryption Security Protocol, Data Encryption Status page
 		*/
 		length = CreateSecurityProtocolInSrb(psptwb_ex, SECURITY_PROTOCOL_TAPE, SPIN_TAPE_ENCRYPTION_STATUS);
@@ -659,6 +719,10 @@ main(
 	}
 
 Cleanup:
+#ifdef _DEBUG
+	printf("Press return/enter to exit.\n");
+	getchar();
+#endif
 	if (keyAssociatedDataStatus[0] != NULL) {
 		free(keyAssociatedDataStatus[0]);
 	}
@@ -736,6 +800,28 @@ CreateSecurityProtocolOutSrb(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR
 	psptwb_ex->spt.Cdb[2] = (pageCode << 8) & 0xFF00;
 	psptwb_ex->spt.Cdb[3] = pageCode & 0xFF;
 
+	return length;
+}
+
+/// <summary>
+/// Create a STORAGE_REQUEST_BLOCK for CDB OpCode Read Attribute
+/// </summary>
+/// <param name="psptwb_ex">Pointer to a SCSI_PASS_THROUGH_WITH_BUFFERS_EX struct (wrapper of SCSI_PASS_THROUGH_EX)</param>
+/// <param name="serviceAction">The value for Service Action field</param>
+/// <param name="partitionNumber">The value for Partition Number field</param>
+/// <param name="firstAttributeIdentifier">The value for First Attribute ID field</param>
+/// <returns>Length of the SRB in bytes</returns>
+ULONG
+CreateReadAttributesSrb(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR serviceAction, UCHAR partitionNumber, UINT16 firstAttributeIdentifier, BOOL useCache)
+{
+	ULONG length = ResetSrbIn(psptwb_ex, SCSIOP_READ_ATTRIBUTES);
+	if (length == 0) { return length; }
+	psptwb_ex->spt.Cdb[1] = serviceAction & 0x1F;
+	psptwb_ex->spt.Cdb[5] = 0; /* Volume Number field - LTO only supports a single volume. */
+	psptwb_ex->spt.Cdb[7] = partitionNumber;
+	psptwb_ex->spt.Cdb[8] = (UCHAR)(firstAttributeIdentifier << 8) & 0xFF00;
+	psptwb_ex->spt.Cdb[9] = firstAttributeIdentifier & 0xFF;
+	psptwb_ex->spt.Cdb[14] = useCache & 0x1;
 	return length;
 }
 
@@ -1874,6 +1960,7 @@ GetCdbLength(UCHAR opCode)
 	case 5:
 		return CDB12GENERIC_LENGTH;
 	case 4: // 16 byte commands
+		return CDB16GENERIC_LENGTH;
 	case 6: // vendor-unique commands
 	case 7: // not supported
 	default:
@@ -1930,6 +2017,13 @@ ResetSrbIn(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR opCode)
 		psptwb_ex->spt.Cdb[7] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
 		psptwb_ex->spt.Cdb[8] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
 		psptwb_ex->spt.Cdb[9] = SPTWB_DATA_LENGTH & 0xFF;
+		break;
+	case SCSIOP_READ_ATTRIBUTES:
+		psptwb_ex->spt.Cdb[0] = opCode;
+		psptwb_ex->spt.Cdb[10] = (SPTWB_DATA_LENGTH >> 24) & 0xFF;
+		psptwb_ex->spt.Cdb[11] = (SPTWB_DATA_LENGTH >> 16) & 0xFF;
+		psptwb_ex->spt.Cdb[12] = (SPTWB_DATA_LENGTH >> 8) & 0xFF;
+		psptwb_ex->spt.Cdb[13] = SPTWB_DATA_LENGTH & 0xFF;
 		break;
 	default:
 		break;

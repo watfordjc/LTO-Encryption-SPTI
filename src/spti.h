@@ -301,11 +301,80 @@ typedef struct _SENSE_INFO {
 } SENSE_INFO, *PSENSE_INFO;
 #pragma pack(pop)
 
+#pragma pack(push)
+#pragma pack(1)
+typedef struct _MAM_ATTRIBUTE_VALUES_SERVICE_ACTION {
+    UINT32 AvailableData; /* Network Byte Order */
+    UCHAR First;
+    UCHAR NumberAvailable;
+#if !defined(__midl)
+    UCHAR AttributeList[0];
+#endif
+} MAM_ATTRIBUTE_VALUES_SERVICE_ACTION, *PMAM_ATTRIBUTE_VALUES_SERVICE_ACTION;
+#pragma pack(pop)
+
+#pragma pack(push)
+#pragma pack(1)
+typedef struct _MAM_ATTRIBUTE_LIST_SERVICE_ACTION {
+    UINT32 AvailableData; /* Network Byte Order */
+    UCHAR First;
+    UCHAR NumberAvailable;
+#if !defined(__midl)
+    UINT16 AttributeIdentifierList[0];
+#endif
+} MAM_ATTRIBUTE_LIST_SERVICE_ACTION, *PMAM_ATTRIBUTE_LIST_SERVICE_ACTION;
+#pragma pack(pop)
+
+#pragma pack(push)
+#pragma pack(1)
+typedef struct _MAM_PARTITION_LIST_SERVICE_ACTION {
+    UINT16 AvailableData; /* Network Byte Order */
+    UCHAR First;
+    UCHAR NumberAvailable;
+} MAM_PARTITION_LIST_SERVICE_ACTION, *PMAM_PARTITION_LIST_SERVICE_ACTION;
+#pragma pack(pop)
+
+#pragma pack(push)
+#pragma pack(1)
+typedef struct _MAM_VOLUME_LIST_SERVICE_ACTION {
+    UINT16 AvailableData; /* Network Byte Order */
+    UCHAR First;
+    UCHAR NumberAvailable;
+} MAM_VOLUME_LIST_SERVICE_ACTION, *PMAM_VOLUME_LIST_SERVICE_ACTION;
+#pragma pack(pop)
+
+#pragma pack(push)
+#pragma pack(1)
+typedef struct _MAM_SUPPORTED_ATTRIBUTES_SERVICE_ACTION {
+    UINT32 AvailableData; /* Network Byte Order */
+#if !defined(__midl)
+    UINT16 AttributeIdentifierList[0];
+#endif
+} MAM_SUPPORTED_ATTRIBUTES_SERVICE_ACTION, *PMAM_SUPPORTED_ATTRIBUTES_SERVICE_ACTION;
+#pragma pack(pop)
+
+#pragma pack(push)
+#pragma pack(1)
+typedef struct _MAM_ATTRIBUTE_DATA {
+    UINT16 AttributeIdentifier; /* Network Byte Order */
+    UCHAR Format : 2; /* MSb of [2] */
+    UCHAR Reserved1 : 5;
+    UCHAR ReadOnly : 1; /* LSb of [2] */
+    UINT16 Length; /* Network Byte Order */
+#if !defined(__midl)
+    UCHAR Value[0];
+#endif
+} MAM_ATTRIBUTE_DATA, *PMAM_ATTRIBUTE_DATA;
+#pragma pack(pop)
+
 ULONG
 CreateSecurityProtocolInSrb(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR securityProtocol, UCHAR pageCode);
 
 ULONG
 CreateSecurityProtocolOutSrb(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR securityProtocol, UCHAR pageCode);
+
+ULONG
+CreateReadAttributesSrb(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR serviceAction, UCHAR partitionNumber, UINT16 firstAttributeIdentifier, BOOL useCache);
 
 BOOL
 SendSrb(HANDLE fileHandle, PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, ULONG length, PULONG returned);
@@ -401,6 +470,7 @@ QueryPropertyForDevice(_In_ HANDLE, _Out_ PULONG, _Out_ PUCHAR, _Out_ PSTORAGE_B
 
 #define CDB6GENERIC_LENGTH                   6
 #define CDB10GENERIC_LENGTH                  10
+#define CDB16GENERIC_LENGTH                  16
 
 #define SETBITON                             1
 #define SETBITOFF                            0
@@ -471,3 +541,77 @@ QueryPropertyForDevice(_In_ HANDLE, _Out_ PULONG, _Out_ PUCHAR, _Out_ PSTORAGE_B
 #define WRAPPED_KEY_DESCRIPTOR_TYPE_KEY_INFO 0x02
 #define WRAPPED_KEY_DESCRIPTOR_TYPE_KEY_ID 0x03
 #define WRAPPED_KEY_DESCRIPTOR_TYPE_KEY_LENGTH 0x04
+
+/* Read Attribute Extensions to scsi.h */
+#define READ_ATTRIBUTE_SERVICE_ATTRIBUTE_VALUES 0x00
+#define READ_ATTRIBUTE_SERVICE_ATTRIBUTE_LIST 0x01
+#define READ_ATTRIBUTE_SERVICE_VOLUME_LIST 0x02
+#define READ_ATTRIBUTE_SERVICE_PARTITION_LIST 0x03
+#define READ_ATTRIBUTE_SERVICE_SUPPORTED_ATTRIBUTES 0x05
+/* SCSI_ADSENSE_LUN_NOT_READY(0x04) qualifiers */
+#define SCSI_SENSEQ_MAM_NOT_ACCESSIBLE 0x10
+/* SCSI_ADSENSE_UNRECOVERED_ERROR (0x11) qualifiers */
+#define SCSI_SENSEQ_MAM_READ_ERROR 0x12
+
+/* Constants for CM/MAM Attributes */
+#define MAM_REMAINING_PARTITION_CAPACITY 0x0000
+#define MAM_MAXIMUM_PARTITION_CAPACITY 0x0001
+#define MAM_TAPE_ALERT_FLAGS 0x0002
+#define MAM_LOAD_COUNT 0x0003
+#define MAM_REMAINING_MAM_CAPACITY 0x0004
+#define MAM_ASSIGNING_ORG 0x0005
+#define MAM_INIT_COUNT 0x0006
+#define MAM_VOLUME_ID 0x0008
+#define MAM_VOLUME_CHANGE_REF 0x0009
+#define MAM_SERIAL_ULTIMATE_LOAD 0x020A
+#define MAM_SERIAL_PENULTIMATE_LOAD 0x020B
+#define MAM_SERIAL_ANTEPENULTIMATE_LOAD 0x020C
+#define MAM_SERIAL_PREANTIPENULTIMATE_LOAD 0x020D
+#define MAM_TOTAL_WRITTEN_LIFETIME 0x0220
+#define MAM_TOTAL_READ_LIFETIME 0x0221
+#define MAM_TOTAL_WRITTEN_ULTIMATE_LOAD 0x0222
+#define MAM_TOTAL_READ_ULTIMATE_LOAD 0x0223
+#define MAM_FIRST_ENCRYPTED_BLOCK 0x0224
+#define MAM_FIRST_UNENCRYPTED_BLOCK 0x0225
+#define MAM_MEDIUM_MANUFACTURER 0x0400
+#define MAM_MEDIUM_SERIAL 0x0401
+#define MAM_MEDIUM_LENGTH 0x0402
+#define MAM_MEDIUM_WIDTH 0x0403
+#define MAM_MEDIUM_ASSIGNING_ORG 0x0404
+#define MAM_MEDIUM_DENSITY_CODE 0x0405
+#define MAM_MEDIUM_MANUFACTURE_DATE 0x0406
+#define MAM_MAXIMUM_MAM_CAPACITY 0x0407
+#define MAM_MEDIUM_TYPE 0x0408
+#define MAM_MEDIUM_TYPE_INFO 0x0409
+#define MAM_APP_VENDOR 0x0800
+#define MAM_APP_NAME 0x0801
+#define MAM_APP_VERSION 0x0802
+#define MAM_MEDIUM_USER_LABEL 0x0803
+#define MAM_LAST_WRITE_TIME 0x0804
+#define MAM_TEXT_LOCALE_ID 0x0805
+#define MAM_BARCODE 0x0806
+#define MAM_HOST_SERVER_NAME 0x0807
+#define MAM_MEDIA_POOL 0x0808
+#define MAM_PARTITION_USER_LABEL 0x0809
+#define MAM_LOAD_UNLOAD_AT_PARTITION 0x080A
+#define MAM_APP_FORMAT_VERSION 0x080B
+#define MAM_VOLUME_COHERENCY_INFO 0x080C
+#define MAM_MEDIUM_GUID 0x0820
+#define MAM_MEDIA_POOL_GUID 0x0821
+#define MAM_CARTRIDGE_ID 0x1000
+#define MAM_CARTRIDGE_ID_ALT 0x1001
+#define MAM_VOLUME_LOCKED 0x1623
+
+#define MAM_LOCALE_ASCII 0x00
+#define MAM_LOCALE_LATIN_1 0x01
+#define MAM_LOCALE_LATIN_2 0x02
+#define MAM_LOCALE_LATIN_3 0x03
+#define MAM_LOCALE_LATIN_4 0x04
+#define MAM_LOCALE_LATIN_CYRILLIC 0x05
+#define MAM_LOCALE_LATIN_ARABIC 0x06
+#define MAM_LOCALE_LATIN_GREEK 0x07
+#define MAM_LOCALE_LATIN_HEBREW 0x08
+#define MAM_LOCALE_LATIN_5 0x09
+#define MAM_LOCALE_LATIN_6 0x0A
+#define MAM_LOCALE_UNICODE 0x80
+#define MAM_LOCALE_UTF8 0x81
