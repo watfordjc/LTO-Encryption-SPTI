@@ -75,12 +75,12 @@
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
   </ImportGroup>
-  <ItemGroup Label="WrappedTaskItems" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <TargetName>spti</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <TargetName>spti</TargetName>
+    <LinkIncremental>true</LinkIncremental>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <TargetName>spti</TargetName>
@@ -110,6 +110,9 @@
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);..\..\inc;$(DDK_INC_PATH)</AdditionalIncludeDirectories>
       <ExceptionHandling>
       </ExceptionHandling>
+      <CompileAs>Default</CompileAs>
+      <AdditionalOptions>/ZI</AdditionalOptions>
+      <ControlFlowGuard>false</ControlFlowGuard>
     </ClCompile>
     <ResourceCompile>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);..\..\inc;$(DDK_INC_PATH)</AdditionalIncludeDirectories>
@@ -117,6 +120,9 @@
     <Midl>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);..\..\inc;$(DDK_INC_PATH)</AdditionalIncludeDirectories>
     </Midl>
+    <Link>
+      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
+    </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
