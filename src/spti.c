@@ -288,7 +288,8 @@ main(
 						string, errorCode);
 					PrintError(errorCode);
 				}
-				else {
+				else
+				{
 					status = QueryPropertyForDevice(fileHandle, &alignmentMask, &srbType, &storageBusType);
 					if (!status)
 					{
@@ -345,7 +346,8 @@ main(
 			clearKey = TRUE;
 			keyFormat = SPIN_TAPE_KEY_FORMAT_PLAIN;
 		}
-		else {
+		else
+		{
 			key = (PUCHAR)argv[2];
 			keyLength = (int)strlen(argv[2]);
 			switch (keyLength)
@@ -671,7 +673,8 @@ main(
 			}
 			printf("\n");
 		}
-		else {
+		else
+		{
 			PSENSE_INFO senseInfo = (PSENSE_INFO)psptwb_ex->ucSenseBuf;
 			if (psptwb_ex->spt.ScsiStatus == SCSISTAT_CHECK_CONDITION)
 			{
@@ -1407,7 +1410,8 @@ ParseDeviceIdentifiers(PVPD_IDENTIFICATION_PAGE deviceIdentifiers, PUINT16 pLogi
 					free(vendorId);
 				}
 			}
-			else {
+			else
+			{
 				PrintDataBuffer(identifier->Identifier, identifier->IdentifierLength);
 			}
 			break;
@@ -1423,7 +1427,8 @@ ParseDeviceIdentifiers(PVPD_IDENTIFICATION_PAGE deviceIdentifiers, PUINT16 pLogi
 				}
 				printf("\n");
 			}
-			else {
+			else
+			{
 				printf("\n");
 				PrintDataBuffer(identifier->Identifier, identifier->IdentifierLength);
 			}
@@ -2237,7 +2242,8 @@ PrintError(ULONG ErrorCode)
 	{
 		fprintf(stderr, "%s\n", errorBuffer);
 	}
-	else {
+	else
+	{
 		fprintf(stderr, "Format message failed.  Error: %d\n", GetLastError());
 	}
 }
@@ -2278,7 +2284,8 @@ PrintAdapterDescriptor(PSTORAGE_ADAPTER_DESCRIPTOR AdapterDescriptor)
 	{
 		busType = BusTypeStrings[AdapterDescriptor->BusType];
 	}
-	else {
+	else
+	{
 		busType = BusTypeStrings[NUMBER_OF_BUS_TYPE_STRINGS - 1];
 	}
 
@@ -2287,7 +2294,8 @@ PrintAdapterDescriptor(PSTORAGE_ADAPTER_DESCRIPTOR AdapterDescriptor)
 	{
 		trueMaximumTransferLength = AdapterDescriptor->MaximumPhysicalPages - 1;
 	}
-	else {
+	else
+	{
 		trueMaximumTransferLength = 1;
 	}
 	// make it into a byte value
@@ -2352,31 +2360,32 @@ PrintDeviceDescriptor(PSTORAGE_DEVICE_DESCRIPTOR DeviceDescriptor)
 	{
 		busType = BusTypeStrings[DeviceDescriptor->BusType];
 	}
-	else {
+	else
+	{
 		busType = BusTypeStrings[NUMBER_OF_BUS_TYPE_STRINGS - 1];
 	}
 
 	if ((DeviceDescriptor->ProductIdOffset != 0) &&
 		(DeviceDescriptor->ProductIdOffset != -1))
-{
+	{
 		productId = (LPCSTR)(DeviceDescriptor);
 		productId += (ULONG_PTR)DeviceDescriptor->ProductIdOffset;
 	}
 	if ((DeviceDescriptor->VendorIdOffset != 0) &&
 		(DeviceDescriptor->VendorIdOffset != -1))
-{
+	{
 		vendorId = (LPCSTR)(DeviceDescriptor);
 		vendorId += (ULONG_PTR)DeviceDescriptor->VendorIdOffset;
 	}
 	if ((DeviceDescriptor->ProductRevisionOffset != 0) &&
 		(DeviceDescriptor->ProductRevisionOffset != -1))
-{
+	{
 		productRevision = (LPCSTR)(DeviceDescriptor);
 		productRevision += (ULONG_PTR)DeviceDescriptor->ProductRevisionOffset;
 	}
 	if ((DeviceDescriptor->SerialNumberOffset != 0) &&
 		(DeviceDescriptor->SerialNumberOffset != -1))
-{
+	{
 		serialNumber = (LPCSTR)(DeviceDescriptor);
 		serialNumber += (ULONG_PTR)DeviceDescriptor->SerialNumberOffset;
 	}
@@ -2502,11 +2511,12 @@ PrintStatusResultsEx(
 		return;
 	}
 	if (psptwb_ex->spt.ScsiStatus)
-{
+	{
 		PrintSenseInfoEx(psptwb_ex);
 		return;
 	}
-	else {
+	else
+	{
 		printf("Scsi status: %02Xh, Bytes returned: %Xh, ",
 			psptwb_ex->spt.ScsiStatus, returned);
 		printf("DataOut buffer length: %Xh\n"
@@ -2522,7 +2532,7 @@ PrintSenseInfoEx(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex)
 {
 	printf("* Scsi status: %02Xh\n", psptwb_ex->spt.ScsiStatus);
 	if (psptwb_ex->spt.SenseInfoLength == 0)
-{
+	{
 		return;
 	}
 	printf("* Sense Info -- consult SCSI spec for details\n");
@@ -2604,7 +2614,7 @@ QueryPropertyForDevice(
 		STORAGE_PROPERTY_QUERY query = { 0 };
 
 		switch (i)
-{
+		{
 		case 0: {
 			query.QueryType = PropertyStandardQuery;
 			query.PropertyId = StorageAdapterProperty;
@@ -2617,10 +2627,10 @@ QueryPropertyForDevice(
 			query.PropertyId = StorageAdapterProperty;
 			bufferSize = header.Size;
 			if (bufferSize != 0)
-{
+			{
 				adapterDescriptor = LocalAlloc(LPTR, bufferSize);
 				if (adapterDescriptor == NULL)
-{
+				{
 					goto Cleanup;
 				}
 			}
@@ -2640,10 +2650,10 @@ QueryPropertyForDevice(
 			bufferSize = header.Size;
 
 			if (bufferSize != 0)
-{
+			{
 				deviceDescriptor = LocalAlloc(LPTR, bufferSize);
 				if (deviceDescriptor == NULL)
-{
+				{
 					goto Cleanup;
 				}
 			}
@@ -2667,20 +2677,21 @@ QueryPropertyForDevice(
 				&returnedData,
 				FALSE);
 			if (!ok)
-{
+			{
 				if (GetLastError() == ERROR_MORE_DATA)
-{
+				{
 					// this is ok, we'll ignore it here
 				}
 				else if (GetLastError() == ERROR_INVALID_FUNCTION)
-{
+				{
 					// this is also ok, the property DNE
 				}
 				else if (GetLastError() == ERROR_NOT_SUPPORTED)
-{
+				{
 					// this is also ok, the property DNE
 				}
-				else {
+				else
+				{
 					// some unexpected error -- exit out
 					goto Cleanup;
 				}
@@ -2694,20 +2705,22 @@ QueryPropertyForDevice(
 	// deviceDescriptor is now allocated and full of data.
 
 	if (adapterDescriptor == NULL)
-{
+	{
 		fprintf(stderr, "   ***** No adapter descriptor supported on the device *****\n");
 	}
-	else {
+	else
+	{
 		PrintAdapterDescriptor(adapterDescriptor);
 		*AlignmentMask = adapterDescriptor->AlignmentMask;
 		*SrbType = adapterDescriptor->SrbType;
 	}
 
 	if (deviceDescriptor == NULL)
-{
+	{
 		fprintf(stderr, "   ***** No device descriptor supported on the device  *****\n");
 	}
-	else {
+	else
+	{
 		PrintDeviceDescriptor(deviceDescriptor);
 		*StorageBusType = deviceDescriptor->BusType;
 	}
@@ -2716,11 +2729,11 @@ QueryPropertyForDevice(
 
 Cleanup:
 	if (adapterDescriptor != NULL)
-{
+	{
 		LocalFree(adapterDescriptor);
 	}
 	if (deviceDescriptor != NULL)
-{
+	{
 		LocalFree(deviceDescriptor);
 	}
 	return (!failed);
