@@ -305,8 +305,6 @@ typedef struct _SENSE_INFO {
 #pragma pack(1)
 typedef struct _MAM_ATTRIBUTE_VALUES_SERVICE_ACTION {
     UINT32 AvailableData; /* Network Byte Order */
-    UCHAR First;
-    UCHAR NumberAvailable;
 #if !defined(__midl)
     UCHAR AttributeList[0];
 #endif
@@ -387,6 +385,9 @@ PCHAR
 NullPaddedNullTerminatedToString(UINT32 arrayLength, PUCHAR characterArray);
 
 VOID
+UnpadSpacePaddingString(PCHAR paddedString, int stringLength);
+
+VOID
 ParseSupportedSecurityProtocolList(PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA securityProtocolList, PBOOL pCapTapeEncryption);
 
 VOID
@@ -436,6 +437,18 @@ ResetSrbOut(PSCSI_PASS_THROUGH_WITH_BUFFERS_EX psptwb_ex, UCHAR opCode);
 
 PCHAR
 GetSecurityProtocolDescription(UCHAR securityProtocol);
+
+LPCSTR
+GetMamAttributeDescription(UINT16 mamAttribute);
+
+LPCSTR
+GetMamValueUnit(UINT16 mamAttribute);
+
+LPCSTR
+ParseMamValue_UCHAR(UINT16 mamAttribute, UCHAR mamValue);
+
+LPCSTR
+ParseMamValue_USHORT(UINT16 mamAttribute, USHORT mamValue);
 
 VOID
 PrintError(ULONG);
@@ -558,7 +571,8 @@ QueryPropertyForDevice(_In_ HANDLE, _Out_ PULONG, _Out_ PUCHAR, _Out_ PSTORAGE_B
 #define MAM_LOAD_COUNT 0x0003
 #define MAM_REMAINING_MAM_CAPACITY 0x0004
 #define MAM_ASSIGNING_ORG 0x0005
-#define MAM_INIT_COUNT 0x0006
+#define MAM_DENSITY_CODE 0x0006
+#define MAM_INIT_COUNT 0x0007
 #define MAM_VOLUME_ID 0x0008
 #define MAM_VOLUME_CHANGE_REF 0x0009
 #define MAM_SERIAL_ULTIMATE_LOAD 0x020A
@@ -594,8 +608,8 @@ QueryPropertyForDevice(_In_ HANDLE, _Out_ PULONG, _Out_ PUCHAR, _Out_ PSTORAGE_B
 #define MAM_LOAD_UNLOAD_AT_PARTITION 0x080A
 #define MAM_APP_FORMAT_VERSION 0x080B
 #define MAM_VOLUME_COHERENCY_INFO 0x080C
-#define MAM_MEDIUM_GUID 0x0820
-#define MAM_MEDIA_POOL_GUID 0x0821
+#define MAM_LTFS_MEDIUM_UUID 0x0820
+#define MAM_LTFS_MEDIA_POOL_UUID 0x0821
 #define MAM_CARTRIDGE_ID 0x1000
 #define MAM_CARTRIDGE_ID_ALT 0x1001
 #define MAM_VOLUME_LOCKED 0x1623
@@ -613,3 +627,8 @@ QueryPropertyForDevice(_In_ HANDLE, _Out_ PULONG, _Out_ PUCHAR, _Out_ PSTORAGE_B
 #define MAM_LOCALE_LATIN_6 0x0A
 #define MAM_LOCALE_UNICODE 0x80
 #define MAM_LOCALE_UTF8 0x81
+
+#define MAM_FORMAT_BINARY 0b00
+#define MAM_FORMAT_ASCII 0b01
+#define MAM_FORMAT_TEXT 0b10
+#define MAM_FORMAT_RESERVED 0b11

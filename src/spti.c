@@ -36,6 +36,7 @@ Revision History:
 #include <stdio.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <math.h>
 #include <strsafe.h>
 #include <intsafe.h>
 #define _NTSCSI_USER_MODE_
@@ -188,6 +189,30 @@ LPCSTR EncryptionParametersScopeStrings[] = {
 	"Public",
 	"Local",
 	"All I_T Nexus"
+};
+
+LPCSTR MamAttributeFormatStrings[] = {
+	"Binary",
+	"ASCII",
+	"Localized Text",
+	"Unexpected value"
+};
+
+LPCSTR MamMediumTypeStrings[] = {
+	"Data cartridge",
+	"Cleaning cartridge",
+	"WORM cartridge"
+};
+
+LPCSTR MamMediumLockedStrings[] = {
+	"Unlocked",
+	"Locked (user lock)",
+	"Locked (permanent write error)",
+	"Locked (permanent user lock)",
+	"Locked (permanent write error in data partition)",
+	"Locked (permanent write error in index partition)",
+	"Locked (permanent write errors in data and index partitions)",
+	"Unexpected value"
 };
 
 /// <summary>
@@ -636,9 +661,46 @@ main(
 
 
 		/*
+		* CDB: Read Attribute, Volume List
+		*/
+		INT16 volumeCount = -1;
+		length = CreateReadAttributesSrb(psptwb_ex, READ_ATTRIBUTE_SERVICE_VOLUME_LIST, 0, 0, 1);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		{
+			printf("Parsing MAM Volume List...\n");
+			PMAM_VOLUME_LIST_SERVICE_ACTION volumeListData = (PMAM_VOLUME_LIST_SERVICE_ACTION)psptwb_ex->ucDataBuf;
+			printf("* First Volume: %d\n", volumeListData->First);
+			volumeCount = volumeListData->NumberAvailable;
+			printf("* Number of Volumes: %d\n", volumeCount);
+			printf("\n");
+		}
+
+
+		/*
+		* CDB: Read Attribute, Partition List
+		*/
+		INT16 partitionCount = -1;
+		length = CreateReadAttributesSrb(psptwb_ex, READ_ATTRIBUTE_SERVICE_PARTITION_LIST, 0, 0, 1);
+		if (length == 0) { goto Cleanup; }
+		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+
+		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		{
+			printf("Parsing MAM Partition List...\n");
+			PMAM_PARTITION_LIST_SERVICE_ACTION partitionListData = (PMAM_PARTITION_LIST_SERVICE_ACTION)psptwb_ex->ucDataBuf;
+			printf("* First Partition Number: %d\n", partitionListData->First);
+			partitionCount = partitionListData->NumberAvailable;
+			printf("* Number of Partitions: %d\n", partitionCount);
+			printf("\n");
+		}
+
+
+		/*
 		* CDB: Read Attribute, Supported Attributes
 		*/
-		INT32 ultimateAttribute = -1;
 		BOOL responseTruncated = FALSE;
 		length = CreateReadAttributesSrb(psptwb_ex, READ_ATTRIBUTE_SERVICE_SUPPORTED_ATTRIBUTES, 0, 0, 1);
 		if (length == 0) { goto Cleanup; }
@@ -662,14 +724,18 @@ main(
 			{
 				attributeCount = maximumAttributeCount;
 			}
-			for (int i = 0; i < attributeCount; i++) {
-				UINT16 attribute = (UINT16)ntohs(supportedAttributeData->AttributeIdentifierList[i]);
-				printf("  * Attribute %d (0x%04X)\n", attribute, attribute);
-			}
-			// Remember the last attribute in the list if we received the full list, so we can tell if other lists are truncated later
-			if (!responseTruncated)
+			for (int i = 0; i < attributeCount; i++)
 			{
-				ultimateAttribute = (UINT16)ntohs(supportedAttributeData->AttributeIdentifierList[attributeCount - 1]);
+				UINT16 attribute = (UINT16)ntohs(supportedAttributeData->AttributeIdentifierList[i]);
+				LPCSTR attributeName = GetMamAttributeDescription(attribute);
+				if (attributeName == NULL)
+				{
+					printf("  * Attribute %d (0x%04X)\n", attribute, attribute);
+				}
+				else
+				{
+					printf("  * %s (0x%04X)\n", attributeName, attribute);
+				}
 			}
 			printf("\n");
 		}
@@ -697,90 +763,328 @@ main(
 		/*
 		* CDB: Read Attribute, Attribute List
 		*/
-		length = CreateReadAttributesSrb(psptwb_ex, READ_ATTRIBUTE_SERVICE_ATTRIBUTE_LIST, 0, 0, 1);
-		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-
-		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		INT16 ultimateAttributes[4] = { -1 };
+		BOOL responsesTruncated[4] = { FALSE };
+		INT32 attributeLocales[4] = { 0 }; /* The default locale is 0x00 - ASCII */
+		for (UCHAR partition = 0; partition < partitionCount; partition++)
 		{
-			printf("Parsing MAM Available Attributes...\n");
-			PMAM_ATTRIBUTE_LIST_SERVICE_ACTION availableAttributesData = (PMAM_ATTRIBUTE_LIST_SERVICE_ACTION)psptwb_ex->ucDataBuf;
-			// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
-			availableAttributesData->AvailableData = ntohl(availableAttributesData->AvailableData);
-			// Calculate the maximum number of attributes given our buffer size
-			int maximumAttributeCount = (SPTWB_DATA_LENGTH - sizeof(availableAttributesData->AvailableData)) / sizeof(availableAttributesData->AttributeIdentifierList[0]);
-			// Get number of supported attributes
-			int attributeCount = availableAttributesData->AvailableData / sizeof(availableAttributesData->AttributeIdentifierList[0]);
-			// Parse the response
-			printf("* Available Data: %d bytes (%d attributes%s)\n", availableAttributesData->AvailableData, attributeCount, responseTruncated ? ", truncated to first " + maximumAttributeCount : "");
-			if (attributeCount > maximumAttributeCount)
+			length = CreateReadAttributesSrb(psptwb_ex, READ_ATTRIBUTE_SERVICE_ATTRIBUTE_LIST, partition, 0, 1);
+			if (length == 0) { goto Cleanup; }
+			status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+
+			if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
 			{
-				attributeCount = maximumAttributeCount;
-			}
-			for (int i = 0; i < attributeCount; i++) {
-				UINT16 attribute = (UINT16)ntohs(availableAttributesData->AttributeIdentifierList[i]);
-				printf("  * Attribute %d (0x%04X)\n", attribute, attribute);
-			}
-			printf("\n");
-		}
-		else {
-			PSENSE_INFO senseInfo = (PSENSE_INFO)psptwb_ex->ucSenseBuf;
-			if (psptwb_ex->spt.ScsiStatus == SCSISTAT_CHECK_CONDITION)
-			{
-				if (senseInfo->SenseKey == SCSI_SENSE_NOT_READY && senseInfo->AdditionalSenseCode == SCSI_ADSENSE_NO_MEDIA_IN_DEVICE)
+				printf("Parsing MAM Available Attributes for Partition %d...\n", partition);
+				PMAM_ATTRIBUTE_LIST_SERVICE_ACTION availableAttributesData = (PMAM_ATTRIBUTE_LIST_SERVICE_ACTION)psptwb_ex->ucDataBuf;
+				// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+				availableAttributesData->AvailableData = ntohl(availableAttributesData->AvailableData);
+				// Calculate the maximum number of attributes given our buffer size
+				int maximumAttributeCount = (SPTWB_DATA_LENGTH - sizeof(availableAttributesData->AvailableData)) / sizeof(availableAttributesData->AttributeIdentifierList[0]);
+				// Get number of supported attributes
+				int attributeCount = availableAttributesData->AvailableData / sizeof(availableAttributesData->AttributeIdentifierList[0]);
+				// It is unlikely the response is truncated given our buffer size, but it is possible
+				responsesTruncated[partition] = attributeCount > maximumAttributeCount;
+				// Parse the response
+				printf("* Available Data: %d bytes (%d attributes%s)\n", availableAttributesData->AvailableData, attributeCount, responsesTruncated[partition] ? ", truncated to first " + maximumAttributeCount : "");
+				if (attributeCount > maximumAttributeCount)
 				{
-					printf("** Unable to read Available Attributes from MAM - tape drive is empty. **\n\n");
-					goto Cleanup;
+					attributeCount = maximumAttributeCount;
 				}
-				else if (senseInfo->SenseKey == SCSI_SENSE_MEDIUM_ERROR)
+				for (int i = 0; i < attributeCount; i++)
 				{
-					if ((senseInfo->AdditionalSenseCode == SCSI_ADSENSE_LUN_NOT_READY && senseInfo->AdditionalSenseCodeQualifier == SCSI_SENSEQ_MAM_NOT_ACCESSIBLE) ||
-						(senseInfo->AdditionalSenseCode == SCSI_ADSENSE_UNRECOVERED_ERROR && senseInfo->AdditionalSenseCodeQualifier == SCSI_SENSEQ_MAM_READ_ERROR))
+					UINT16 attribute = (UINT16)ntohs(availableAttributesData->AttributeIdentifierList[i]);
+					/* If the partition has a locale attribute, we can't assume the default value */
+					if (attribute == MAM_TEXT_LOCALE_ID)
 					{
-						printf("** Unable to read Available Attributes from MAM. **\n\n");
+						attributeLocales[partition] = -1;
+					}
+					LPCSTR attributeName = GetMamAttributeDescription(attribute);
+					if (attributeName == NULL)
+					{
+						printf("  * Attribute %d (0x%04X)\n", attribute, attribute);
+					}
+					else
+					{
+						printf("  * %s (0x%04X)\n", attributeName, attribute);
 					}
 				}
+				// Remember the last attribute in the list if we received the full list, so we can tell if other lists are truncated later
+				if (!responseTruncated)
+				{
+					ultimateAttributes[partition] = (UINT16)ntohs(availableAttributesData->AttributeIdentifierList[attributeCount - 1]);
+				}
+				printf("\n");
+			}
+			else
+			{
+				break;
 			}
 		}
 
+		printf("Parsing MAM text attribute locales for partitions...\n");
+		for (UCHAR partition = 0; partition < partitionCount; partition++)
+		{
+			if (attributeLocales[partition] == MAM_LOCALE_ASCII)
+			{
+				printf("* Partition %d uses default locale ASCII.\n", partition);
+				continue;
+			}
+			length = CreateReadAttributesSrb(psptwb_ex, READ_ATTRIBUTE_SERVICE_ATTRIBUTE_VALUES, partition, MAM_TEXT_LOCALE_ID, 1);
+			if (length == 0) { goto Cleanup; }
+			status = SendSrb(fileHandle, psptwb_ex, length, &returned);
+
+			if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+			{
+				PMAM_ATTRIBUTE_DATA localeAttribute = (PMAM_ATTRIBUTE_DATA)((PMAM_ATTRIBUTE_VALUES_SERVICE_ACTION)psptwb_ex->ucDataBuf)->AttributeList[0];
+				UINT16 attributeIdentifier = ntohs(localeAttribute->AttributeIdentifier);
+				if (attributeIdentifier == MAM_TEXT_LOCALE_ID)
+				{
+					attributeLocales[partition] = localeAttribute->Value[0];
+					printf("* Partition %d uses locale 0x%02X.\n", partition, attributeLocales[partition]);
+				}
+				else
+				{
+					fprintf(stderr, "** Unexpected attribute %d (0x%04X) when trying to check locale for partition %d **\n", attributeIdentifier, attributeIdentifier, partition);
+				}
+			}
+		}
+		printf("\n");
+
 
 		/*
-		* CDB: Read Attribute, Volume List
+		* CDB: Read Attribute, Attribute Values
 		*/
-		length = CreateReadAttributesSrb(psptwb_ex, READ_ATTRIBUTE_SERVICE_VOLUME_LIST, 0, 0, 1);
-		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-
-		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+		for (UCHAR partition = 0; partition < partitionCount; partition++)
 		{
-			printf("Parsing MAM Volume List...\n");
-			PMAM_VOLUME_LIST_SERVICE_ACTION volumeListData = (PMAM_VOLUME_LIST_SERVICE_ACTION)psptwb_ex->ucDataBuf;
-			printf("* First Volume: %d\n", volumeListData->First);
-			printf("* Number of Volumes: %d\n", volumeListData->NumberAvailable);
-			printf("\n");
-		}
+			if (responsesTruncated[partition])
+			{
+				fprintf(stderr, "** Unable to prase MAM text attribute values for partition %d because the attribute list is too long. **\n\n", partition);
+				continue;
+			}
+			printf("Parsing MAM Attribute Values for partition %d...", partition);
+			length = CreateReadAttributesSrb(psptwb_ex, READ_ATTRIBUTE_SERVICE_ATTRIBUTE_VALUES, partition, 0, 1);
+			if (length == 0) { goto Cleanup; }
+			status = SendSrb(fileHandle, psptwb_ex, length, &returned);
 
+			if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
+			{
+				PMAM_ATTRIBUTE_VALUES_SERVICE_ACTION attributeValuesData = (PMAM_ATTRIBUTE_VALUES_SERVICE_ACTION)psptwb_ex->ucDataBuf;
+				// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64)
+				attributeValuesData->AvailableData = htonl(attributeValuesData->AvailableData);
+				BOOL truncated = SPTWB_DATA_LENGTH - sizeof(attributeValuesData->AvailableData) < attributeValuesData->AvailableData;
+				printf("%s", truncated ? " (truncated)\n" : "\n");
+				UINT32 attributeListBytes = truncated ? returned - sizeof(attributeValuesData->AvailableData) : attributeValuesData->AvailableData - sizeof(attributeValuesData->AvailableData);
+				UINT16 currentAttributeTotalLength = 0;
+				for (UINT32 i = 0; i < attributeListBytes; i += currentAttributeTotalLength)
+				{
+					PMAM_ATTRIBUTE_DATA currentAttributeData = (PMAM_ATTRIBUTE_DATA)(attributeValuesData->AttributeList + i);
+					// LTO is MSB/MSb first (Big Endian), convert multi-byte field types to native byte order (Little Endian on x86-64
+					currentAttributeData->Length = ntohs(currentAttributeData->Length);
+					currentAttributeData->AttributeIdentifier = ntohs(currentAttributeData->AttributeIdentifier);
+					currentAttributeTotalLength = (UINT16)FIELD_OFFSET(MAM_ATTRIBUTE_DATA, Value[currentAttributeData->Length]);
 
-		/*
-		* CDB: Read Attribute, Partition List
-		*/
-		length = CreateReadAttributesSrb(psptwb_ex, READ_ATTRIBUTE_SERVICE_PARTITION_LIST, 0, 0, 1);
-		if (length == 0) { goto Cleanup; }
-		status = SendSrb(fileHandle, psptwb_ex, length, &returned);
-
-		if (CheckStatus(fileHandle, psptwb_ex, status, returned, length))
-		{
-			printf("Parsing MAM Partition List...\n");
-			PMAM_PARTITION_LIST_SERVICE_ACTION partitionListData = (PMAM_PARTITION_LIST_SERVICE_ACTION)psptwb_ex->ucDataBuf;
-			printf("* First Partition Number: %d\n", partitionListData->First);
-			printf("* Number of Partitions: %d\n", partitionListData->NumberAvailable);
-			printf("\n");
-		}
-
-
-		if (!responseTruncated && ultimateAttribute >= 0)
-		{
-			/* TODO: CDB: Read Attribute, Attribute Values */
+					LPCSTR attributeName = GetMamAttributeDescription(currentAttributeData->AttributeIdentifier);
+					if (attributeName == NULL)
+					{
+						printf("  * Attribute %d (0x%04X) is of type %s\n", currentAttributeData->AttributeIdentifier, currentAttributeData->AttributeIdentifier, MamAttributeFormatStrings[currentAttributeData->Format]);
+					}
+					else
+					{
+						printf("  * %s (0x%04X) is of type %s\n", attributeName, currentAttributeData->AttributeIdentifier, MamAttributeFormatStrings[currentAttributeData->Format]);
+					}
+					if (currentAttributeData->Format == MAM_FORMAT_ASCII || (currentAttributeData->Format == MAM_FORMAT_TEXT && attributeLocales[partition] == MAM_LOCALE_ASCII))
+					{
+						if (currentAttributeData->Length == 0)
+						{
+							printf("    * No value (%d bytes)\n", currentAttributeData->Length);
+							continue;
+						}
+						switch (currentAttributeData->AttributeIdentifier)
+						{
+						case MAM_SERIAL_ULTIMATE_LOAD:
+						case MAM_SERIAL_PENULTIMATE_LOAD:
+						case MAM_SERIAL_ANTEPENULTIMATE_LOAD:
+						case MAM_SERIAL_PREANTIPENULTIMATE_LOAD:
+						{
+							CHAR vendorValue[9] = { 0 };
+							memcpy_s(vendorValue, sizeof(vendorValue), (PCHAR)&currentAttributeData->Value[0], 8 * sizeof(CHAR));
+							UnpadSpacePaddingString(vendorValue, 8);
+							printf("    * Vender: %s\n", vendorValue);
+							CHAR serialNumber[33] = { 0 };
+							memcpy_s(serialNumber, sizeof(serialNumber), (PCHAR)&currentAttributeData->Value[8], 32 * sizeof(CHAR));
+							UnpadSpacePaddingString(serialNumber, 32);
+							printf("    * Serial Number: %s\n", serialNumber);
+						}
+						break;
+						case MAM_ASSIGNING_ORG:
+						case MAM_MEDIUM_MANUFACTURER:
+						case MAM_MEDIUM_SERIAL:
+						case MAM_MEDIUM_ASSIGNING_ORG:
+						case MAM_APP_VENDOR:
+						case MAM_APP_NAME:
+						case MAM_APP_VERSION:
+						case MAM_BARCODE:
+						case MAM_APP_FORMAT_VERSION:
+						{
+							size_t arrayLength = ((size_t)currentAttributeData->Length) + 1;
+							PCHAR stringValue = calloc(arrayLength, sizeof(CHAR));
+							if (stringValue != NULL)
+							{
+								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[0], currentAttributeData->Length * sizeof(CHAR));
+								UnpadSpacePaddingString(stringValue, currentAttributeData->Length);
+								printf("    * Value: %s\n", stringValue);
+								free(stringValue);
+							}
+						}
+						break;
+						default:
+						{
+							size_t arrayLength = ((size_t)currentAttributeData->Length) + 1;
+							PCHAR stringValue = calloc(arrayLength, sizeof(CHAR));
+							if (stringValue != NULL)
+							{
+								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[0], currentAttributeData->Length * sizeof(CHAR));
+								printf("    * Value: %s\n", stringValue);
+								free(stringValue);
+							}
+						}
+						break;
+						}
+					}
+					else if (currentAttributeData->Format == MAM_FORMAT_BINARY)
+					{
+						switch (currentAttributeData->AttributeIdentifier)
+						{
+						/* 1 nibble hex */
+						case MAM_DENSITY_CODE:
+						case MAM_MEDIUM_DENSITY_CODE:
+						{
+							printf("    * Value: 0x%1X\n", currentAttributeData->Value[0]);
+						}
+						break;
+						/* 1 byte */
+						case MAM_MEDIUM_TYPE:
+						case MAM_VOLUME_LOCKED:
+						{
+							printf("    * Value: %s\n", ParseMamValue_UCHAR(currentAttributeData->AttributeIdentifier, currentAttributeData->Value[0]));
+						}
+						break;
+						case MAM_MEDIUM_TYPE_INFO:
+						{
+							printf("    * Value: %d (0x%02X)\n", currentAttributeData->Value[0], currentAttributeData->Value[0]);
+						}
+						break;
+						/* 2 byte */
+						case MAM_INIT_COUNT:
+						{
+							PUINT16 value = (PUINT16)&currentAttributeData->Value[0];
+							*value = (UINT16)ntohs(*value);
+							printf("    * Value: %s\n", ParseMamValue_USHORT(currentAttributeData->AttributeIdentifier, *value));
+						}
+						break;
+						/* 4 byte unsigned long representing a measurement */
+						case MAM_MEDIUM_LENGTH:
+						{
+							PUINT32 value = (PUINT32)&currentAttributeData->Value[0];
+							*value = (UINT32)ntohl(*value);
+							printf("    * Value: %lu%s\n", *value, GetMamValueUnit(currentAttributeData->AttributeIdentifier));
+						}
+						break;
+						case MAM_MEDIUM_WIDTH:
+						{
+							PUINT32 value = (PUINT32)&currentAttributeData->Value[0];
+							*value = (UINT32)ntohl(*value);
+							double width = *value / 10.0;
+							printf("    * Value: %.1f%s\n", width, GetMamValueUnit(currentAttributeData->AttributeIdentifier));
+						}
+						break;
+						/* 4 byte unsigned long representing an overflowable measurement */
+						case MAM_VOLUME_CHANGE_REF:
+						{
+							PUINT32 value = (PUINT32)&currentAttributeData->Value[0];
+							*value = (UINT32)ntohl(*value);
+							if (*value == UINT32_MAX)
+							{
+								printf("    * Value: Overflowed - use attribute %s (0x%04X)\n", GetMamAttributeDescription(MAM_VOLUME_COHERENCY_INFO), MAM_VOLUME_COHERENCY_INFO);
+							}
+							else if (*value == 0)
+							{
+								printf("    * Value: %lu or Unknown (0x%08X)\n", *value, *value);
+							}
+							else
+							{
+								printf("    * Value: %lu (0x%08X)\n", *value, *value);
+							}
+						}
+						break;
+						/* 8 bytes unsigned long long */
+						case MAM_FIRST_ENCRYPTED_BLOCK:
+						case MAM_FIRST_UNENCRYPTED_BLOCK:
+						{
+							PUINT64 value = (PUINT64)&currentAttributeData->Value[0];
+							*value = (UINT64)ntohll(*value);
+							switch (*value)
+							{
+							case UINT64_MAX:
+								printf("    * Value: None (0x%016llX)\n", *value);
+								break;
+							case UINT64_MAX - 1:
+								printf("    * Value: Unknown (0x%016llX)\n", *value);
+								break;
+							default:
+								printf("    * Value: %llu (0x%016llX)\n", *value, *value);
+								break;
+							}
+						}
+						break;
+						/* 8 byte unsigned long long representing a measurement */
+						case MAM_REMAINING_MAM_CAPACITY:
+						case MAM_MAXIMUM_MAM_CAPACITY:
+						case MAM_LOAD_COUNT:
+						case MAM_REMAINING_PARTITION_CAPACITY:
+						case MAM_MAXIMUM_PARTITION_CAPACITY:
+						case MAM_TOTAL_WRITTEN_LIFETIME:
+						case MAM_TOTAL_READ_LIFETIME:
+						case MAM_TOTAL_WRITTEN_ULTIMATE_LOAD:
+						case MAM_TOTAL_READ_ULTIMATE_LOAD:
+						{
+							PUINT64 value = (PUINT64)&currentAttributeData->Value[0];
+							*value = (UINT64)ntohll(*value);
+							printf("    * Value: %llu%s\n", *value, GetMamValueUnit(currentAttributeData->AttributeIdentifier));
+						}
+						break;
+						case MAM_LTFS_MEDIUM_UUID:
+						case MAM_LTFS_MEDIA_POOL_UUID:
+						{
+							size_t arrayLength = ((size_t)currentAttributeData->Length) + 5;
+							PCHAR stringValue = calloc(arrayLength, sizeof(CHAR));
+							if (stringValue != NULL)
+							{
+								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[0], 8 * sizeof(CHAR));
+								stringValue[8] = '-';
+								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[8], 4 * sizeof(CHAR));
+								stringValue[13] = '-';
+								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[12], 4 * sizeof(CHAR));
+								stringValue[19] = '-';
+								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[16], 4 * sizeof(CHAR));
+								stringValue[24] = '-';
+								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[20], 12 * sizeof(CHAR));
+								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[0], currentAttributeData->Length * sizeof(CHAR));
+								printf("    * Value: %s\n", stringValue);
+								free(stringValue);
+							}
+						}
+						break;
+						default:
+							printf("    * Length: %lu\n", currentAttributeData->Length);
+							printf("    * Value:\n");
+							PrintDataBuffer(currentAttributeData->Value, currentAttributeData->Length);
+							break;
+						}
+					}
+				}
+				printf("\n");
+			}
 		}
 
 
@@ -1059,6 +1363,23 @@ NullPaddedNullTerminatedToString(UINT32 arrayLength, PUCHAR characterArray)
 		}
 	}
 	return NULL;
+}
+
+VOID
+UnpadSpacePaddingString(PCHAR paddedString, int stringLength)
+{
+	for (int charPos = stringLength - 1; charPos >= 0; charPos--)
+	{
+		PCHAR lastSpace = strrchr(paddedString, ' ');
+		if (lastSpace != NULL && lastSpace - charPos == (PCHAR)&paddedString[0])
+		{
+			paddedString[charPos] = '\0';
+		}
+		else
+		{
+			return;
+		}
+	}
 }
 
 /// <summary>
@@ -2220,6 +2541,174 @@ GetSecurityProtocolDescription(UCHAR securityProtocol)
 		return "ATA Device Server Password Security (SAT-3)";
 	default:
 		return "Unknown";
+	}
+}
+
+LPCSTR
+GetMamAttributeDescription(UINT16 mamAttribute)
+{
+	switch (mamAttribute)
+	{
+	case MAM_REMAINING_PARTITION_CAPACITY:
+		return "Remaining capacity in partition";
+	case MAM_MAXIMUM_PARTITION_CAPACITY:
+		return "Maximum capacity in partition";
+	case MAM_TAPE_ALERT_FLAGS:
+		return "TapeAlert flags";
+	case MAM_LOAD_COUNT:
+		return "Load count";
+	case MAM_REMAINING_MAM_CAPACITY:
+		return "MAM space remaining";
+	case MAM_ASSIGNING_ORG:
+		return "Assigning organization";
+	case MAM_DENSITY_CODE:
+		return "Formatted density code";
+	case MAM_INIT_COUNT:
+		return "Initialization count";
+	case MAM_VOLUME_ID:
+		return "Volume identifier";
+	case MAM_VOLUME_CHANGE_REF:
+		return "Volume change reference";
+	case MAM_SERIAL_ULTIMATE_LOAD:
+		return "Ultimate drive ID";
+	case MAM_SERIAL_PENULTIMATE_LOAD:
+		return "Penultimate drive ID";
+	case MAM_SERIAL_ANTEPENULTIMATE_LOAD:
+		return "Antipenultimate drive ID";
+	case MAM_SERIAL_PREANTIPENULTIMATE_LOAD:
+		return "Preantipenultimate drive ID";
+	case MAM_TOTAL_WRITTEN_LIFETIME:
+		return "Lifetime data written to cartridge";
+	case MAM_TOTAL_READ_LIFETIME:
+		return "Lifetime data read from cartridge";
+	case MAM_TOTAL_WRITTEN_ULTIMATE_LOAD:
+		return "Total data written in ultimate load";
+	case MAM_TOTAL_READ_ULTIMATE_LOAD:
+		return "Total data read in ultimate load";
+	case MAM_FIRST_ENCRYPTED_BLOCK:
+		return "Logical position of first encrypted block";
+	case MAM_FIRST_UNENCRYPTED_BLOCK:
+		return "Logical position of first unencrypted block after the first encrypted block";
+	case MAM_MEDIUM_MANUFACTURER:
+		return "Cartridge manufacturer";
+	case MAM_MEDIUM_SERIAL:
+		return "Cartridge serial number";
+	case MAM_MEDIUM_LENGTH:
+		return "Tape length";
+	case MAM_MEDIUM_WIDTH:
+		return "Tape width";
+	case MAM_MEDIUM_ASSIGNING_ORG:
+		return "Cartridge assigning organization";
+	case MAM_MEDIUM_DENSITY_CODE:
+		return "Cartridge density code";
+	case MAM_MEDIUM_MANUFACTURE_DATE:
+		return "Cartridge manufacture date";
+	case MAM_MAXIMUM_MAM_CAPACITY:
+		return "MAM capacity";
+	case MAM_MEDIUM_TYPE:
+		return "Cartridge type";
+	case MAM_MEDIUM_TYPE_INFO:
+		return "Cartridge type information";
+	case MAM_APP_VENDOR:
+		return "Application vendor";
+	case MAM_APP_NAME:
+		return "Application name";
+	case MAM_APP_VERSION:
+		return "Application version";
+	case MAM_MEDIUM_USER_LABEL:
+		return "User defined cartridge text label";
+	case MAM_LAST_WRITE_TIME:
+		return "Last modification timestamp";
+	case MAM_TEXT_LOCALE_ID:
+		return "Locale for cartridge text attributes";
+	case MAM_BARCODE:
+		return "Barcode";
+	case MAM_HOST_SERVER_NAME:
+		return "Host server name";
+	case MAM_MEDIA_POOL:
+		return "Media pool";
+	case MAM_PARTITION_USER_LABEL:
+		return "User defined partition text label";
+	case MAM_LOAD_UNLOAD_AT_PARTITION:
+		return "Load/unload at partition";
+	case MAM_APP_FORMAT_VERSION:
+		return "Application format version";
+	case MAM_VOLUME_COHERENCY_INFO:
+		return "Volume coherency information";
+	case MAM_LTFS_MEDIUM_UUID:
+		return "LTFS medium UUID";
+	case MAM_LTFS_MEDIA_POOL_UUID:
+		return "LTFS media pool UUID";
+	case MAM_CARTRIDGE_ID:
+		return "Cartridge unique identity";
+	case MAM_CARTRIDGE_ID_ALT:
+		return "Cartridge alternative unique identity";
+	case MAM_VOLUME_LOCKED:
+		return "Volume locked";
+	case 0x1400:
+	case 0x1500:
+	default:
+		return NULL;
+	}
+}
+
+LPCSTR
+GetMamValueUnit(UINT16 mamAttribute)
+{
+	switch (mamAttribute)
+	{
+	case MAM_MEDIUM_LENGTH:
+		return " metres";
+	case MAM_MEDIUM_WIDTH:
+		return " mm";
+	case MAM_REMAINING_MAM_CAPACITY:
+	case MAM_MAXIMUM_MAM_CAPACITY:
+		return " bytes";
+	case MAM_REMAINING_PARTITION_CAPACITY:
+	case MAM_MAXIMUM_PARTITION_CAPACITY:
+	case MAM_TOTAL_WRITTEN_LIFETIME:
+	case MAM_TOTAL_READ_LIFETIME:
+	case MAM_TOTAL_WRITTEN_ULTIMATE_LOAD:
+	case MAM_TOTAL_READ_ULTIMATE_LOAD:
+		return " MB";
+	default:
+		return "";
+	}
+}
+
+LPCSTR
+ParseMamValue_UCHAR(UINT16 mamAttribute, UCHAR mamValue)
+{
+	switch (mamAttribute)
+	{
+	case MAM_MEDIUM_TYPE:
+	{
+		switch (mamValue)
+		{
+		case 0x00:
+			return MamMediumTypeStrings[0];
+		case 0x01:
+			return MamMediumTypeStrings[1];
+		case 0x80:
+			return MamMediumTypeStrings[2];
+		}
+	}
+	case MAM_VOLUME_LOCKED:
+		return mamValue <= 0x06 ? MamMediumLockedStrings[mamValue] : MamMediumLockedStrings[7];
+	default:
+		return "";
+	}
+}
+
+LPCSTR
+ParseMamValue_USHORT(UINT16 mamAttribute, USHORT mamValue)
+{
+	switch (mamAttribute)
+	{
+	case MAM_INIT_COUNT:
+		return mamValue == 0 ? "Uninitialized" : "Initialized";
+	default:
+		return "";
 	}
 }
 
