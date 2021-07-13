@@ -2,6 +2,8 @@
 
 This is a utility based on the [SCSI Pass-Through Interface Tool](https://github.com/watfordjc/SCSI_Pass_Through_Interface_Tool) GitHub template, a templated version of the [SCSI Pass-Through Interface Tool driver sample](https://github.com/microsoft/Windows-driver-samples/tree/master/storage/tools/spti) from the Windows Driver Kit (WDK) driver samples.
 
+LTO-Encryption-SPTI is part of the [**Data Backups and Archiving GitHub Project**](https://github.com/users/watfordjc/projects/2).
+
 The purpose of this tool will be to pass symmetric encryption keys to an LTO drive using SPTI.
 
 **This repository does not yet contain complete software.**
