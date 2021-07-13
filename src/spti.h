@@ -387,6 +387,9 @@ NullPaddedNullTerminatedToString(UINT32 arrayLength, PUCHAR characterArray);
 VOID
 UnpadSpacePaddingString(PCHAR paddedString, int stringLength);
 
+UINT64
+LittleEndianCharArrayToUINT64(PCHAR array, UCHAR arrayLength);
+
 VOID
 ParseSupportedSecurityProtocolList(PSUPPORTED_SECURITY_PROTOCOLS_PARAMETER_DATA securityProtocolList, PBOOL pCapTapeEncryption);
 

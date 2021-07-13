@@ -215,6 +215,12 @@ LPCSTR MamMediumLockedStrings[] = {
 	"Unexpected value"
 };
 
+LPCSTR LtfsAcsiVersionStrings[] = {
+	"LTFS Format Specification Version 1.0",
+	"LTFS Format Specification Version 2.0.0",
+	"Unknown LTFS Format Specification"
+};
+
 /// <summary>
 /// Uses SCSI Pass Through Interface (SPTI) to communicate with an LTO tape drive
 /// </summary>
@@ -1068,6 +1074,119 @@ main(
 							}
 						}
 						break;
+						case MAM_VOLUME_COHERENCY_INFO:
+						{
+							int fieldByteOffset = 0;
+							UCHAR vcrLength = currentAttributeData->Value[fieldByteOffset];
+							fieldByteOffset++;
+
+							PCHAR vcrValue = NULL;
+							/* If array size is less than or equal to 8 bytes, use a decimal string */
+							if (vcrLength <= 8)
+							{
+								UINT64 vcrNumericValue = LittleEndianCharArrayToUINT64((PCHAR)&currentAttributeData->Value[fieldByteOffset], vcrLength);
+								/* Number of decimal digits needed to represent UINT64_MAX */
+								size_t maximumDigits = 20;
+								/* Allocate enough zeroed memory to store the decimal string */
+								vcrValue = (PCHAR)calloc(maximumDigits + 1, sizeof(CHAR));
+								/* Convert the integer to a string - */
+								snprintf(vcrValue, maximumDigits + 1, "%llu", vcrNumericValue);
+							}
+							/* Otherwise, use a colon-separated hex string */
+							else
+							{
+								/* Allocate enough zeroed RAM for a string storing each byte as two hex digits and a colon */
+								vcrValue = (PCHAR)calloc((size_t)vcrLength * 3, sizeof(CHAR));
+								/* Replace '\0' with ':', retaining '\0' for the last byte (colon-separated, so last byte's separator can be our NUL terminator) */
+								memset(vcrValue, ':', sizeof(CHAR) * ((size_t)vcrLength * 3 - 1));
+								/* Combine the bytes into a colon-separated hex string */
+								for (int currentByte = fieldByteOffset + 0; currentByte < fieldByteOffset + vcrLength; currentByte++)
+								{
+									/* Small NUL-teriminated string for 2 hex digits */
+									CHAR byteValue[3] = { 0 };
+									/* Convert the current byte to hex digits */
+									snprintf((PCHAR)&byteValue, 3, "%02x", currentAttributeData->Value[currentByte]);
+									/* Copy the two hex digits for this byte to our colon-separated string */
+									vcrValue[currentByte * 3] = byteValue[0];
+									vcrValue[currentByte * 3 + 1] = byteValue[1];
+								}
+							}
+							if (vcrValue != NULL)
+							{
+								printf("    * Volume Change Reference (VCR in LTFS): %s\n", vcrValue);
+								free(vcrValue);
+							}
+							fieldByteOffset += vcrLength;
+							UINT64 vccValue = LittleEndianCharArrayToUINT64((PCHAR)&currentAttributeData->Value[fieldByteOffset], 8);
+							printf("    * Volume Coherency Count (Generation Number in LTFS): %llu\n", vccValue);
+							fieldByteOffset += 8;
+							UINT64 vcsiValue = LittleEndianCharArrayToUINT64((PCHAR)&currentAttributeData->Value[fieldByteOffset], 8);
+							printf("    * Volume Coherency Set Indicator (Block Number in LTFS): %llu\n", vcsiValue);
+							fieldByteOffset += 8;
+							BOOL containsUnknownData = FALSE;
+							if (fieldByteOffset + 2 < currentAttributeData->Length)
+							{
+								UINT16 acsiLength = (UINT16)currentAttributeData->Value[fieldByteOffset] << 8 | (UINT16)currentAttributeData->Value[fieldByteOffset + 1];
+								PCHAR acsiData = (PCHAR)&currentAttributeData->Value[fieldByteOffset + 2];
+								int acsiOffset = 0;
+								printf("    * Application Client Specific Information:\n");
+								if (acsiOffset + 5 < acsiLength)
+								{
+									PCHAR acsiSpec = calloc(acsiLength, sizeof(CHAR));
+									strcpy_s(acsiSpec, acsiLength, (PCHAR)&acsiData[acsiOffset]);
+									BOOL isLtfs = strcmp(acsiSpec, "LTFS") == 0;
+									if (!isLtfs)
+									{
+										containsUnknownData = TRUE;
+										goto PrintUnknownAcsiData;
+									}
+									printf("      * ACSI follows a version of the LTFS specification.\n");
+									acsiOffset += (UINT16)strlen(acsiSpec) + 1;
+
+									if (acsiOffset + 37 > acsiLength)
+									{
+										containsUnknownData = TRUE;
+										goto PrintUnknownAcsiData;
+									}
+									printf("      * Volume UUID: %s\n", (PCHAR)&acsiData[acsiOffset]);
+									acsiOffset += 37;
+
+									if (acsiOffset + 1 > acsiLength)
+									{
+										containsUnknownData = TRUE;
+										goto PrintUnknownAcsiData;
+									}
+									UCHAR version = acsiData[acsiOffset];
+									if (version < 2)
+									{
+										printf("      * %s\n", LtfsAcsiVersionStrings[version]);
+									}
+									else
+									{
+										printf("      * %s (0x%02x)\n", LtfsAcsiVersionStrings[2], version);
+									}
+									acsiOffset++;
+									if (acsiLength > acsiOffset)
+									{
+										containsUnknownData = TRUE;
+										goto PrintUnknownAcsiData;
+									}
+								}
+								else
+								{
+									containsUnknownData = TRUE;
+									goto PrintUnknownAcsiData;
+								}
+							PrintUnknownAcsiData:
+								if (containsUnknownData)
+								{
+									printf("      * Unknown data contained in ACSI:\n");
+									PrintDataBuffer((PUCHAR)&acsiData[acsiOffset], acsiLength - acsiOffset);
+								}
+								fieldByteOffset += acsiLength;
+							}
+						}
+						break;
 						default:
 							printf("    * Length: %lu\n", currentAttributeData->Length);
 							printf("    * Value:\n");
@@ -1358,6 +1477,11 @@ NullPaddedNullTerminatedToString(UINT32 arrayLength, PUCHAR characterArray)
 	return NULL;
 }
 
+/// <summary>
+/// Remove space characters from the end of a string
+/// </summary>
+/// <param name="paddedString">A pointer to a CHAR array</param>
+/// <param name="stringLength">The length of the string in the CHAR array</param>
 VOID
 UnpadSpacePaddingString(PCHAR paddedString, int stringLength)
 {
@@ -1373,6 +1497,27 @@ UnpadSpacePaddingString(PCHAR paddedString, int stringLength)
 			return;
 		}
 	}
+}
+
+/// <summary>
+/// Convert a little endian character array to a UINT64
+/// </summary>
+/// <param name="array">A little endian character array</param>
+/// <param name="arrayLength">The length of the array</param>
+/// <returns>The first 8 bytes of the character array as a UINT64</returns>
+UINT64
+LittleEndianCharArrayToUINT64(PCHAR array, UCHAR arrayLength)
+{
+	UINT64 vcrNumericValue = 0;
+	/* Combine the bytes into a 64-bit unsigned integer using bit shifts */
+	for (int currentByte = 0; currentByte < arrayLength; currentByte++)
+	{
+		/* If we reach byte 8 (0-based numbering), break out of the loop */
+		if (currentByte == 8) { break; }
+		/* Left shift the byte's bits and bitwise OR them with the bits from previous loop iterations */
+		vcrNumericValue |= (UINT64)array[currentByte] << (8 * (7 - currentByte));
+	}
+	return vcrNumericValue;
 }
 
 /// <summary>
