@@ -1056,22 +1056,15 @@ main(
 						case MAM_LTFS_MEDIUM_UUID:
 						case MAM_LTFS_MEDIA_POOL_UUID:
 						{
-							size_t arrayLength = ((size_t)currentAttributeData->Length) + 5;
-							PCHAR stringValue = calloc(arrayLength, sizeof(CHAR));
-							if (stringValue != NULL)
+							if (currentAttributeData->Length == 36)
 							{
-								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[0], 8 * sizeof(CHAR));
-								stringValue[8] = '-';
-								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[8], 4 * sizeof(CHAR));
-								stringValue[13] = '-';
-								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[12], 4 * sizeof(CHAR));
-								stringValue[19] = '-';
-								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[16], 4 * sizeof(CHAR));
-								stringValue[24] = '-';
-								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[20], 12 * sizeof(CHAR));
-								memcpy_s(stringValue, arrayLength, (PCHAR)&currentAttributeData->Value[0], currentAttributeData->Length * sizeof(CHAR));
-								printf("    * Value: %s\n", stringValue);
-								free(stringValue);
+								CHAR uuid[37] = { '\0' };
+								memcpy_s(uuid, 37, currentAttributeData->Value, currentAttributeData->Length * sizeof(CHAR));
+								printf("    * Value: %s\n", uuid);
+							}
+							else
+							{
+								PrintDataBuffer(currentAttributeData->Value, currentAttributeData->Length);
 							}
 						}
 						break;
