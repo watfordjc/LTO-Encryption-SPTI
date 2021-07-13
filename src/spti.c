@@ -163,6 +163,13 @@ LPCSTR SenseKeyStrings[] = {
 	"UNKNOWN"
 };
 
+LPCSTR TapeAlertSeverityStrings[] = {
+	"Information",
+	"Warning",
+	"Critical",
+	"Unknown"
+};
+
 LPCSTR EncryptionModeStrings[] = {
 	"Disabled",
 	"External",
@@ -1071,6 +1078,25 @@ main(
 							else
 							{
 								PrintDataBuffer(currentAttributeData->Value, currentAttributeData->Length);
+							}
+						}
+						break;
+						case MAM_TAPE_ALERT_FLAGS:
+						{
+							if (currentAttributeData->Length != 8)
+							{
+								PrintDataBuffer(currentAttributeData->Value, currentAttributeData->Length);
+								break;
+							}
+							UINT64 alertFlags = LittleEndianCharArrayToUINT64((PCHAR)&currentAttributeData->Value[0], 8);
+							for (UINT8 alertFlag = 0; alertFlag < 64; alertFlag++)
+							{
+								UINT64 flagMask = (UINT64)1 << alertFlag;
+								if ((alertFlags & flagMask) == flagMask)
+								{
+									UINT8 alertFlagOneBased = alertFlag + 1;
+									printf("    * %s: Alert Flag %d (0x%02x) is set.\n", TapeAlertSeverityStrings[GetTapeAlertSeverity(alertFlagOneBased)], alertFlagOneBased, alertFlagOneBased);
+								}
 							}
 						}
 						break;
@@ -2774,6 +2800,11 @@ GetSecurityProtocolDescription(UCHAR securityProtocol)
 	}
 }
 
+/// <summary>
+/// Get the description of a MAM attribute
+/// </summary>
+/// <param name="mamAttribute">The MAM attribute</param>
+/// <returns>A string description of the attribute</returns>
 LPCSTR
 GetMamAttributeDescription(UINT16 mamAttribute)
 {
@@ -2880,6 +2911,75 @@ GetMamAttributeDescription(UINT16 mamAttribute)
 	case 0x1400:
 	default:
 		return NULL;
+	}
+}
+
+/// <summary>
+/// Get the severity level of a TapeAlert flag
+/// </summary>
+/// <param name="tapeAlertFlag">The TapeAlert flag</param>
+/// <returns>The severity level</returns>
+UCHAR
+GetTapeAlertSeverity(UINT8 tapeAlertFlag)
+{
+	switch (tapeAlertFlag)
+	{
+	case TAPE_ALERT_NO_REMOVAL:
+	case TAPE_ALERT_CLEANING_MEDIA:
+	case TAPE_ALERT_UNSUPPORTED_FORMAT:
+	case TAPE_ALERT_NEARING_MEDIA_LIFE:
+		return TAPE_ALERT_SEVERITY_INFO;
+	case TAPE_ALERT_READ_WARNING:
+	case TAPE_ALERT_WRITE_WARNING:
+	case TAPE_ALERT_HARD_ERROR:
+	case TAPE_ALERT_MEDIA_LIFE:
+	case TAPE_ALERT_NOT_DATA_GRADE:
+	case TAPE_ALERT_CM_FAILURE:
+	case TAPE_ALERT_READ_ONLY_FORMAT:
+	case TAPE_ALERT_DIR_CORRUPT_ON_LOAD:
+	case TAPE_ALERT_CLEAN_PERIODIC:
+	case TAPE_ALERT_RETENTION_REQUESTED:
+	case TAPE_ALERT_DUAL_PORT_INTF_ERROR:
+	case TAPE_ALERT_COOLING_FAN_FAILURE:
+	case TAPE_ALERT_POWER_SUPPLY:
+	case TAPE_ALERT_POWER_CONSUMPTION:
+	case TAPE_ALERT_DRIVE_MAINTENANCE:
+	case TAPE_ALERT_INTF:
+	case TAPE_ALERT_DL_FAIL:
+	case TAPE_ALERT_DRIVE_HUMIDITY:
+	case TAPE_ALERT_DRIVE_TEMP:
+	case TAPE_ALERT_DRIVE_VOLTAGE:
+	case TAPE_ALERT_DIAGNOSTICS_REQUIRED:
+	case TAPE_ALERT_LOADER_HARDWARE_B:
+	case TAPE_ALERT_LOADER_PREDICTIVE_FAILURE:
+	case TAPE_ALERT_LOST_STATS:
+	case TAPE_ALERT_DIR_INVALID_AT_UNLOAD:
+		return TAPE_ALERT_SEVERITY_WARN;
+	case TAPE_ALERT_MEDIA:
+	case TAPE_ALERT_READ_FAILURE:
+	case TAPE_ALERT_WRITE_FAILURE:
+	case TAPE_ALERT_WRITE_PROTECT:
+	case TAPE_ALERT_RECOVERABLE_SNAPPED_TAPE:
+	case TAPE_ALERT_UNRECOVERABLE_SNAPPED_TAPE:
+	case TAPE_ALERT_FORCED_EJECT:
+	case TAPE_ALERT_CLEAN_NOW:
+	case TAPE_ALERT_EXPIRED_CLEANING_MEDIA:
+	case TAPE_ALERT_INVALID_CLEANING_TAPE:
+	case TAPE_ALERT_HARDWARE_A:
+	case TAPE_ALERT_HARDWARE_B:
+	case TAPE_ALERT_EJECT_MEDIA:
+	case TAPE_ALERT_PREDICTIVE_FAILURE:
+	case TAPE_ALERT_LOADER_HARDWARE_A:
+	case TAPE_ALERT_LOADER_STRAY_TAPE:
+	case TAPE_ALERT_LOADER_DOOR:
+	case TAPE_ALERT_LOADER_HARDWARE_C:
+	case TAPE_ALERT_LOADER_MAGAZINE:
+	case TAPE_ALERT_SYS_AREA_WRITE_FAILURE:
+	case TAPE_ALERT_SYS_AREA_READ_FAILURE:
+	case TAPE_ALERT_NO_START_OF_DATA:
+		return TAPE_ALERT_SEVERITY_CRIT;
+	default:
+		return TAPE_ALERT_SEVERITY_UNKNOWN;
 	}
 }
 
