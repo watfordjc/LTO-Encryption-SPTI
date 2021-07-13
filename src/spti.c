@@ -1187,6 +1187,46 @@ main(
 							}
 						}
 						break;
+						case MAM_EARLY_WARNING_END_OF_MEDIA:
+						{
+							BOOL parseError = FALSE;
+							if (currentAttributeData->Length != 4)
+							{
+								parseError = TRUE;
+								goto Mam1500ParseError;
+							}
+							PCHAR eweomSignatureTest = calloc(4, sizeof(CHAR));
+							strcpy_s(eweomSignatureTest, 4, (PCHAR)&currentAttributeData->Value[0]);
+							BOOL isEweom = strcmp(eweomSignatureTest, "HPE") == 0;
+							if (!isEweom)
+							{
+								parseError = TRUE;
+								goto Mam1500ParseError;
+							}
+							UCHAR eweom = currentAttributeData->Value[3];
+							PCHAR eweomValue = NULL;
+							switch (eweom)
+							{
+							case 0:
+								eweomValue = "False";
+								break;
+							case 1:
+								eweomValue = "True";
+								break;
+							default:
+								eweomValue = "Unknown";
+								break;
+							}
+							printf("    * End Of Media (EOM) point previously passed on writes: %s (0x%02x)\n", eweomValue, eweom);
+						Mam1500ParseError:
+							if (parseError)
+							{
+								printf("    * Does not match %s signature.\n", GetMamAttributeDescription(currentAttributeData->AttributeIdentifier));
+								printf("    * Value:\n");
+								PrintDataBuffer(currentAttributeData->Value, currentAttributeData->Length);
+							}
+						}
+						break;
 						default:
 							printf("    * Length: %lu\n", currentAttributeData->Length);
 							printf("    * Value:\n");
@@ -2783,8 +2823,9 @@ GetMamAttributeDescription(UINT16 mamAttribute)
 		return "Cartridge alternative unique identity";
 	case MAM_VOLUME_LOCKED:
 		return "Volume locked";
+	case MAM_EARLY_WARNING_END_OF_MEDIA:
+		return "HPE EWEOM - Early Warning End Of Media";
 	case 0x1400:
-	case 0x1500:
 	default:
 		return NULL;
 	}
