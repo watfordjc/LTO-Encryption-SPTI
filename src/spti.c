@@ -1187,7 +1187,7 @@ main(
 							}
 						}
 						break;
-						case MAM_EARLY_WARNING_END_OF_MEDIA:
+						case MAM_HPE_EARLY_WARNING_END_OF_MEDIA:
 						{
 							BOOL parseError = FALSE;
 							if (currentAttributeData->Length != 4)
@@ -1225,6 +1225,58 @@ main(
 								printf("    * Value:\n");
 								PrintDataBuffer(currentAttributeData->Value, currentAttributeData->Length);
 							}
+						}
+						break;
+						case MAM_HPE_CARTRIDGE_ID:
+						{
+							if (currentAttributeData->Length != 28)
+							{
+								PrintDataBuffer(currentAttributeData->Value, currentAttributeData->Length);
+								break;
+							}
+							CHAR uci[41];
+							memset(uci, '0', 41);
+							snprintf((PCHAR)&uci[0], 3, "%02X", (UINT8)currentAttributeData->Value[0]);
+							snprintf((PCHAR)&uci[2], 3, "%02X", (UINT8)currentAttributeData->Value[1]);
+							snprintf((PCHAR)&uci[4], 3, "%02X", (UINT8)currentAttributeData->Value[2]);
+							snprintf((PCHAR)&uci[6], 3, "%02X", (UINT8)currentAttributeData->Value[3]);
+							CHAR pancake[9];
+							memcpy_s(pancake, 9, (PCHAR)&currentAttributeData->Value[4], 8);
+							snprintf((PCHAR)&uci[8], 9, "%s", pancake);
+							CHAR manufacturer[9];
+							memcpy_s(manufacturer, 9, (PCHAR)&currentAttributeData->Value[12], 8);
+							snprintf((PCHAR)&uci[16], 9, "%s", manufacturer);
+							UINT32 lpos = (UINT32)LittleEndianCharArrayToUINT64((PCHAR)&currentAttributeData->Value[20], 4);
+							snprintf((PCHAR)&uci[24], 9, "%08X", lpos);
+							snprintf((PCHAR)&uci[32], 3, "%02X", (UINT8)currentAttributeData->Value[24]);
+							snprintf((PCHAR)&uci[34], 3, "%02X", (UINT8)currentAttributeData->Value[25]);
+							snprintf((PCHAR)&uci[36], 3, "%02X", (UINT8)currentAttributeData->Value[26]);
+							snprintf((PCHAR)&uci[38], 3, "%02X", (UINT8)currentAttributeData->Value[27]);
+							printf("    * Value: %s\n", uci);
+						}
+						break;
+						case MAM_HPE_CARTRIDGE_ID_ALT:
+						{
+							if (currentAttributeData->Length != 24)
+							{
+								PrintDataBuffer(currentAttributeData->Value, currentAttributeData->Length);
+								break;
+							}
+							CHAR altUci[41];
+							memset(altUci, '0', 41);
+							snprintf((PCHAR)&altUci[0], 3, "%02X", (UINT8)currentAttributeData->Value[0]);
+							snprintf((PCHAR)&altUci[2], 3, "%02X", (UINT8)currentAttributeData->Value[1]);
+							snprintf((PCHAR)&altUci[4], 3, "%02X", (UINT8)currentAttributeData->Value[2]);
+							snprintf((PCHAR)&altUci[6], 3, "%02X", (UINT8)currentAttributeData->Value[3]);
+							CHAR pancake[9];
+							memcpy_s(pancake, 9, (PCHAR)&currentAttributeData->Value[4], 8);
+							snprintf((PCHAR)&altUci[8], 9, "%s", pancake);
+							CHAR serial[11];
+							memcpy_s(serial, 11, (PCHAR)&currentAttributeData->Value[12], 10);
+							snprintf((PCHAR)&altUci[16], 11, "%s", serial);
+							snprintf((PCHAR)&altUci[26], 3, "%02X", (UINT8)currentAttributeData->Value[22]);
+							snprintf((PCHAR)&altUci[28], 3, "%02X", (UINT8)currentAttributeData->Value[23]);
+							printf("    * Value: %s\n", altUci);
 						}
 						break;
 						default:
@@ -1555,7 +1607,7 @@ LittleEndianCharArrayToUINT64(PCHAR array, UCHAR arrayLength)
 		/* If we reach byte 8 (0-based numbering), break out of the loop */
 		if (currentByte == 8) { break; }
 		/* Left shift the byte's bits and bitwise OR them with the bits from previous loop iterations */
-		vcrNumericValue |= (UINT64)array[currentByte] << (8 * (7 - currentByte));
+		vcrNumericValue |= (UINT64)array[currentByte] << (8 * (8 - arrayLength + 7 - currentByte));
 	}
 	return vcrNumericValue;
 }
@@ -2817,13 +2869,13 @@ GetMamAttributeDescription(UINT16 mamAttribute)
 		return "LTFS medium UUID";
 	case MAM_LTFS_MEDIA_POOL_UUID:
 		return "LTFS media pool UUID";
-	case MAM_CARTRIDGE_ID:
-		return "Cartridge unique identity";
-	case MAM_CARTRIDGE_ID_ALT:
-		return "Cartridge alternative unique identity";
+	case MAM_HPE_CARTRIDGE_ID:
+		return "HPE UCI - Unique Cartridge Identity";
+	case MAM_HPE_CARTRIDGE_ID_ALT:
+		return "HPE AUCI  - Alternative Unique Cartridge Identity";
 	case MAM_VOLUME_LOCKED:
 		return "Volume locked";
-	case MAM_EARLY_WARNING_END_OF_MEDIA:
+	case MAM_HPE_EARLY_WARNING_END_OF_MEDIA:
 		return "HPE EWEOM - Early Warning End Of Media";
 	case 0x1400:
 	default:
