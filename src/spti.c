@@ -730,11 +730,11 @@ main(
 				LPCSTR attributeName = GetMamAttributeDescription(attribute);
 				if (attributeName == NULL)
 				{
-					printf("  * Attribute %d (0x%04X)\n", attribute, attribute);
+					printf("  * 0x%04X (Attribute %d)\n", attribute, attribute);
 				}
 				else
 				{
-					printf("  * %s (0x%04X)\n", attributeName, attribute);
+					printf("  * 0x%04X (%s)\n", attribute, attributeName);
 				}
 			}
 			printf("\n");
@@ -801,11 +801,11 @@ main(
 					LPCSTR attributeName = GetMamAttributeDescription(attribute);
 					if (attributeName == NULL)
 					{
-						printf("  * Attribute %d (0x%04X)\n", attribute, attribute);
+						printf("  * 0x%04X (Attribute %d)\n", attribute, attribute);
 					}
 					else
 					{
-						printf("  * %s (0x%04X)\n", attributeName, attribute);
+						printf("  * 0x%04X (%s)\n", attribute, attributeName);
 					}
 				}
 				// Remember the last attribute in the list if we received the full list, so we can tell if other lists are truncated later
@@ -886,11 +886,11 @@ main(
 					LPCSTR attributeName = GetMamAttributeDescription(currentAttributeData->AttributeIdentifier);
 					if (attributeName == NULL)
 					{
-						printf("  * Attribute %d (0x%04X) is of type %s\n", currentAttributeData->AttributeIdentifier, currentAttributeData->AttributeIdentifier, MamAttributeFormatStrings[currentAttributeData->Format]);
+						printf("  * 0x%04X (Attribute %d) is of type %s\n", currentAttributeData->AttributeIdentifier, currentAttributeData->AttributeIdentifier, MamAttributeFormatStrings[currentAttributeData->Format]);
 					}
 					else
 					{
-						printf("  * %s (0x%04X) is of type %s\n", attributeName, currentAttributeData->AttributeIdentifier, MamAttributeFormatStrings[currentAttributeData->Format]);
+						printf("  * 0x%04X (%s) is of type %s\n", currentAttributeData->AttributeIdentifier, attributeName, MamAttributeFormatStrings[currentAttributeData->Format]);
 					}
 					if (currentAttributeData->Format == MAM_FORMAT_ASCII || (currentAttributeData->Format == MAM_FORMAT_TEXT && attributeLocales[partition] == MAM_LOCALE_ASCII))
 					{
